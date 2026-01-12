@@ -1,0 +1,16 @@
+{
+	"appId": "com.zenbeats.meditation",
+	"appName": "ZenBeats",
+	"webDir": "www",
+	"bundledWebRuntime": false,
+	"server": {
+		"androidScheme": "https"
+	},
+	"ios": {
+		"contentInset": "always",
+		"preferredContentMode": "mobile"
+	},
+	"packageClassList": [
+		"HapticsPlugin"
+	]
+}

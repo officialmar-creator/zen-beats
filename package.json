@@ -1,0 +1,24 @@
+{
+  "name": "zenbeats-ios",
+  "version": "1.0.0",
+  "description": "Native iOS Binaural Beats App",
+  "main": "index.js",
+  "scripts": {
+    "start": "npm run build:dev && npx servor . index.html 8080 --reload",
+    "build:dev": "npx esbuild index.tsx --bundle --sourcemap --jsx=automatic --outfile=index.js --loader:.tsx=tsx --loader:.ts=ts --platform=browser --define:process.env.NODE_ENV=\\\"development\\\"",
+    "build": "npx esbuild index.tsx --bundle --minify --sourcemap --jsx=automatic --outfile=www/index.js --loader:.tsx=tsx --loader:.ts=ts --platform=browser --define:process.env.NODE_ENV=\\\"production\\\" && cp index.html www/index.html",
+    "sync": "npm run build && npx cap sync ios",
+    "run:ios": "npm run sync && npx cap run ios",
+    "deploy": "npm run sync && npx cap open ios",
+    "pod:fix": "cd ios/App && rm -rf Pods Podfile.lock && pod repo remove master || true && pod repo add-cdn trunk https://cdn.cocoapods.org/ || true && export GIT_SSL_NO_VERIFY=true && pod install"
+  },
+  "dependencies": {
+    "@capacitor/cli": "^6.0.0",
+    "@capacitor/core": "^6.0.0",
+    "@capacitor/haptics": "^6.0.0",
+    "@capacitor/ios": "^6.0.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "esbuild": "^0.24.0"
+  }
+}
