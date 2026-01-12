@@ -1,7 +1,8 @@
+
 {
   "appId": "com.zenbeats.meditation",
   "appName": "ZenBeats",
-  "webDir": "www",
+  "webDir": "public",
   "bundledWebRuntime": false,
   "server": {
     "androidScheme": "https"
