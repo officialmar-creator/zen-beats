@@ -1,17 +1,51 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>ZenBeats</title>
+    
+    <!-- PWA Primary Tags -->
+    <meta name="theme-color" content="#0ea5e9">
+    <link rel="manifest" href="manifest.json">
+    
+    <!-- iOS Specific Tags -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="ZenBeats">
+    <link rel="apple-touch-icon" href="https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=192&h=192&fit=crop">
+
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+      }
+    </script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet">
     <style>
+        :root {
+            --bg-color: #f8fafc;
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --card-bg: #ffffff;
+            --border-color: #e2e8f0;
+        }
+
+        .dark {
+            --bg-color: #020617; /* Deepest blue/black */
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --card-bg: #0f172a;
+            --border-color: #1e293b;
+        }
+
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #f1f5f9;
-            color: #0f172a;
-            user-select: auto;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            transition: background-color 0.4s cubic-bezier(0.4, 0, 0.2, 1), color 0.4s ease;
+            user-select: none;
             -webkit-tap-highlight-color: transparent;
             padding-top: env(safe-area-inset-top);
             padding-bottom: env(safe-area-inset-bottom);
@@ -21,39 +55,41 @@
             -webkit-appearance: none;
             background: transparent;
             width: 100%;
-            height: 40px; /* Larger touch area */
+            height: 40px; 
             cursor: pointer;
         }
         
         input[type='range']::-webkit-slider-runnable-track {
             width: 100%;
-            height: 8px; /* Slightly thicker track for smoothness */
+            height: 6px;
             background: #cbd5e1;
-            border-radius: 4px;
+            border-radius: 3px;
+            transition: background 0.3s ease;
+        }
+
+        .dark input[type='range']::-webkit-slider-runnable-track {
+            background: #1e293b; /* Muted track for dark mode */
         }
         
         input[type='range']::-webkit-slider-thumb {
             -webkit-appearance: none;
-            height: 28px;
-            width: 28px;
+            height: 24px;
+            width: 24px;
             border-radius: 50%;
             background: #0ea5e9;
-            margin-top: -10px; /* Centers thumb on track */
-            border: 4px solid #fff;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
-            transition: transform 0.1s ease;
+            margin-top: -9px;
+            border: 3px solid #fff;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
 
-        input[type='range']:active::-webkit-slider-thumb {
-            transform: scale(1.15);
-            background: #0284c7;
+        .dark input[type='range']::-webkit-slider-thumb {
+            border-color: #020617;
+            background: #0284c7; /* Slightly darker thumb */
         }
 
-        input[type='range']:disabled::-webkit-slider-thumb {
-            background: #94a3b8;
-            border-color: #f1f5f9;
-            box-shadow: none;
-        }
+        /* Hide scrollbars but allow scrolling */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
 <script type="importmap">
 {

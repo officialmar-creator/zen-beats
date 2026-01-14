@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef } from 'react';
 
 interface VisualizerProps {
@@ -26,10 +27,11 @@ const Visualizer: React.FC<VisualizerProps> = ({ isPlaying }) => {
       ctx.clearRect(0, 0, rect.width, rect.height);
       const width = rect.width;
       const height = rect.height;
+      const isDark = document.documentElement.classList.contains('dark');
 
       if (!isPlaying) {
         ctx.beginPath();
-        ctx.strokeStyle = 'rgba(14, 165, 233, 0.1)';
+        ctx.strokeStyle = isDark ? 'rgba(56, 189, 248, 0.05)' : 'rgba(14, 165, 233, 0.1)';
         ctx.setLineDash([4, 4]);
         ctx.moveTo(0, height / 2);
         ctx.lineTo(width, height / 2);
@@ -38,15 +40,18 @@ const Visualizer: React.FC<VisualizerProps> = ({ isPlaying }) => {
         return;
       }
 
-      // 5Hz Primary Wave - Sky Blue
+      // 5Hz Primary Wave
       ctx.beginPath();
       const gradient = ctx.createLinearGradient(0, 0, width, 0);
-      gradient.addColorStop(0, 'rgba(14, 165, 233, 0)');
-      gradient.addColorStop(0.5, 'rgba(14, 165, 233, 0.5)');
-      gradient.addColorStop(1, 'rgba(14, 165, 233, 0)');
+      const color = isDark ? '56, 189, 248' : '14, 165, 233';
+      const opacity = isDark ? 0.25 : 0.5;
+      
+      gradient.addColorStop(0, `rgba(${color}, 0)`);
+      gradient.addColorStop(0.5, `rgba(${color}, ${opacity})`);
+      gradient.addColorStop(1, `rgba(${color}, 0)`);
       
       ctx.strokeStyle = gradient;
-      ctx.lineWidth = 4;
+      ctx.lineWidth = isDark ? 3 : 4;
 
       for (let x = 0; x < width; x++) {
         const wave = Math.sin(x * 0.02 + phase) * (height / 6);
@@ -56,9 +61,9 @@ const Visualizer: React.FC<VisualizerProps> = ({ isPlaying }) => {
       }
       ctx.stroke();
 
-      // Soft Glow secondary wave
+      // Soft secondary wave
       ctx.beginPath();
-      ctx.strokeStyle = 'rgba(14, 165, 233, 0.15)';
+      ctx.strokeStyle = isDark ? 'rgba(56, 189, 248, 0.05)' : 'rgba(14, 165, 233, 0.15)';
       ctx.lineWidth = 1;
       for (let x = 0; x < width; x++) {
         const y = height / 2 + Math.cos(x * 0.01 + phase * 0.4) * (height / 4);
@@ -67,7 +72,7 @@ const Visualizer: React.FC<VisualizerProps> = ({ isPlaying }) => {
       }
       ctx.stroke();
 
-      phase += 0.04;
+      phase += 0.03;
       requestRef.current = requestAnimationFrame(animate);
     };
 
@@ -79,7 +84,7 @@ const Visualizer: React.FC<VisualizerProps> = ({ isPlaying }) => {
   }, [isPlaying]);
 
   return (
-    <div className="w-full h-full relative overflow-hidden bg-white/20">
+    <div className="w-full h-full relative overflow-hidden bg-transparent">
       <canvas ref={canvasRef} className="w-full h-full" />
     </div>
   );
