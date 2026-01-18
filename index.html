@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -14,7 +13,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="ZenBeats">
-    <link rel="apple-touch-icon" href="https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=192&h=192&fit=crop">
+    <link rel="apple-touch-icon" href="https://images.unsplash.com/photo-1552728089-57bdde30937c?w=192&h=192&fit=crop">
 
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -33,7 +32,7 @@
         }
 
         .dark {
-            --bg-color: #020617; /* Deepest blue/black */
+            --bg-color: #020617;
             --text-primary: #f8fafc;
             --text-secondary: #94a3b8;
             --card-bg: #0f172a;
@@ -64,11 +63,10 @@
             height: 6px;
             background: #cbd5e1;
             border-radius: 3px;
-            transition: background 0.3s ease;
         }
 
         .dark input[type='range']::-webkit-slider-runnable-track {
-            background: #1e293b; /* Muted track for dark mode */
+            background: #1e293b;
         }
         
         input[type='range']::-webkit-slider-thumb {
@@ -84,10 +82,9 @@
 
         .dark input[type='range']::-webkit-slider-thumb {
             border-color: #020617;
-            background: #0284c7; /* Slightly darker thumb */
+            background: #0284c7;
         }
 
-        /* Hide scrollbars but allow scrolling */
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
@@ -95,9 +92,8 @@
 {
   "imports": {
     "react": "https://esm.sh/react@^19.2.3",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
     "react/": "https://esm.sh/react@^19.2.3/",
-    "@capacitor/haptics": "https://esm.sh/@capacitor/haptics@^8.0.0"
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/"
   }
 }
 </script>
@@ -105,7 +101,8 @@
 </head>
 <body class="min-h-screen flex flex-col">
     <div id="root"></div>
-    <script src="index.js"></script>
+    <!-- type="module" ensures the script executes correctly as a module and defers until DOM is ready -->
+    <script type="module" src="index.js"></script>
 <script type="module" src="/index.tsx"></script>
 </body>
 </html>
