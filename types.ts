@@ -1,3 +1,4 @@
+
 export enum NatureSound {
   NONE = 'None',
   SEA = 'Sea',
@@ -5,7 +6,7 @@ export enum NatureSound {
   RAIN = 'Rain',
   FOREST = 'Forest',
   NIGHT = 'Night',
-  THUNDER = 'Thunder'
+  BIRDS = 'Birds'
 }
 
 export enum NoiseColor {

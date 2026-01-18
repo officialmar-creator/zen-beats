@@ -1,3 +1,4 @@
+
 {
   "name": "ZenBeats",
   "short_name": "ZenBeats",
@@ -6,16 +7,19 @@
   "display": "standalone",
   "background_color": "#f1f5f9",
   "theme_color": "#0ea5e9",
+  "orientation": "portrait",
   "icons": [
     {
       "src": "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=192&h=192&fit=crop",
       "sizes": "192x192",
-      "type": "image/jpeg"
+      "type": "image/jpeg",
+      "purpose": "any maskable"
     },
     {
       "src": "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=512&h=512&fit=crop",
       "sizes": "512x512",
-      "type": "image/jpeg"
+      "type": "image/jpeg",
+      "purpose": "any maskable"
     }
   ]
 }

@@ -33,11 +33,11 @@ const Controls: React.FC<ControlsProps> = ({ settings, updateSettings, disabled 
   const natureMeta: Record<NatureSound, { img: string }> = {
     [NatureSound.SEA]: { img: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&q=80&w=400' }, 
     [NatureSound.RAIN]: { img: 'https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?auto=format&fit=crop&q=80&w=400' },
-    // Updated Birds to a vibrant Tropical Toucan
-    [NatureSound.BIRDS]: { img: 'https://images.unsplash.com/photo-1550853024-fae8cd4be47f?auto=format&fit=crop&q=80&w=400' }, 
+    // Keeping your Birds (Tropical Macaw) as requested
+    [NatureSound.BIRDS]: { img: 'https://images.unsplash.com/photo-1452570053594-1b985d6ea890?auto=format&fit=crop&q=80&w=400' }, 
     [NatureSound.FOREST]: { img: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&q=80&w=400' },
-    // Updated Wind to a more vibrant and dynamic green scene of trees
-    [NatureSound.WIND]: { img: 'https://images.unsplash.com/photo-1530906358829-e84b2769270f?auto=format&fit=crop&q=80&w=400' }, 
+    // NEW: Highly vibrant Green Spring Meadow (definitely not grey)
+    [NatureSound.WIND]: { img: 'https://images.unsplash.com/photo-1470246973918-29a93221c455?auto=format&fit=crop&q=80&w=400' }, 
     [NatureSound.NIGHT]: { img: 'https://images.unsplash.com/photo-1501418611786-e29f9929fe03?auto=format&fit=crop&q=80&w=400' },
     [NatureSound.NONE]: { img: '' }
   };
@@ -47,7 +47,7 @@ const Controls: React.FC<ControlsProps> = ({ settings, updateSettings, disabled 
       
       {/* Brainwave Selection */}
       <section className="flex flex-col space-y-4">
-        <h3 className="text-[10px] font-black uppercase text-slate-900 dark:text-slate-500 tracking-[0.2em] px-1">Target Brainwave</h3>
+        <h3 className="text-[10px] font-black uppercase text-slate-900 dark:text-slate-500 tracking-[0.2em] px-1 text-center sm:text-left">Target Brainwave</h3>
         <div className="grid grid-cols-4 bg-slate-200/50 dark:bg-slate-900/50 p-1 rounded-2xl gap-1 border border-slate-200 dark:border-slate-800">
           {brainwaveStates.map((state) => (
             <button
@@ -68,7 +68,7 @@ const Controls: React.FC<ControlsProps> = ({ settings, updateSettings, disabled 
 
       {/* Soundscapes Selection */}
       <section className="flex flex-col space-y-4">
-        <h3 className="text-[10px] font-black uppercase text-slate-900 dark:text-slate-500 tracking-[0.2em] px-1">Ambient Landscapes</h3>
+        <h3 className="text-[10px] font-black uppercase text-slate-900 dark:text-slate-500 tracking-[0.2em] px-1 text-center sm:text-left">Ambient Landscapes</h3>
         <div className="grid grid-cols-2 gap-4">
           {Object.values(NatureSound).filter(s => s !== NatureSound.NONE).map((sound) => {
             const isActive = settings.selectedNatures.includes(sound);
@@ -84,8 +84,8 @@ const Controls: React.FC<ControlsProps> = ({ settings, updateSettings, disabled 
                   className="absolute inset-0 bg-cover bg-center"
                   style={{ backgroundImage: `url(${natureMeta[sound].img})` }}
                 />
-                <div className={`absolute inset-0 transition-opacity ${isActive ? 'bg-black/20' : 'bg-black/60'}`} />
-                <span className={`relative text-[10px] font-black uppercase tracking-[0.2em] text-white drop-shadow-[0_4px_12px_rgba(0,0,0,1)] z-10 ${isActive ? 'scale-110' : 'opacity-90'}`}>
+                <div className={`absolute inset-0 transition-opacity ${isActive ? 'bg-black/10' : 'bg-black/40'}`} />
+                <span className={`relative text-[11px] font-black uppercase tracking-[0.2em] text-white drop-shadow-[0_4px_16px_rgba(0,0,0,1)] z-10 ${isActive ? 'scale-110' : 'opacity-100'}`}>
                   {sound}
                 </span>
               </button>
@@ -96,7 +96,7 @@ const Controls: React.FC<ControlsProps> = ({ settings, updateSettings, disabled 
 
       {/* Noise Texture Selection */}
       <section className="flex flex-col space-y-4">
-        <h3 className="text-[10px] font-black uppercase text-slate-900 dark:text-slate-500 tracking-[0.2em] px-1">Static Texture</h3>
+        <h3 className="text-[10px] font-black uppercase text-slate-900 dark:text-slate-500 tracking-[0.2em] px-1 text-center sm:text-left">Static Texture</h3>
         <div className="grid grid-cols-5 gap-1.5 p-1 bg-slate-200/50 dark:bg-slate-900/50 rounded-2xl border border-slate-200 dark:border-slate-800">
           {Object.values(NoiseColor).map((color) => (
             <button
