@@ -12,7 +12,6 @@ class AudioService {
   private rightOsc: OscillatorNode | null = null;
   private binauralBaseFreq = 200;
 
-  // Track modulation nodes to clean up
   private natureNodes: Map<NatureSound, { 
     source: AudioBufferSourceNode; 
     filter: BiquadFilterNode; 
@@ -22,10 +21,12 @@ class AudioService {
   }> = new Map();
   
   private colorNoiseNode: AudioBufferSourceNode | null = null;
-  private readonly FADE_DURATION = 1.2;
+  private readonly FADE_DURATION = 1.5;
 
+  // Heartbeat to keep background play active without jitter
   private mediaStreamElement: HTMLAudioElement | null = null;
   private mediaStreamDestination: MediaStreamAudioDestinationNode | null = null;
+  private heartbeatSource: OscillatorNode | null = null;
 
   constructor() {
     const handleVisibility = () => {
@@ -44,16 +45,19 @@ class AudioService {
       sampleRate: 44100 
     });
     
+    // MediaStream trick for background play persistence
     this.mediaStreamDestination = this.ctx.createMediaStreamDestination();
     this.mediaStreamElement = new Audio();
     this.mediaStreamElement.srcObject = this.mediaStreamDestination.stream;
     this.mediaStreamElement.setAttribute('playsinline', 'true');
     this.mediaStreamElement.style.display = 'none';
+    this.mediaStreamElement.volume = 0.01; // Silent heartbeat
     document.body.appendChild(this.mediaStreamElement);
 
+    // Main mix connected DIRECTLY to hardware for 100% stability
     this.masterGain = this.ctx.createGain();
     this.masterGain.gain.value = 0;
-    this.masterGain.connect(this.mediaStreamDestination);
+    this.masterGain.connect(this.ctx.destination);
     
     this.binauralGain = this.ctx.createGain();
     this.binauralGain.connect(this.masterGain);
@@ -71,7 +75,7 @@ class AudioService {
     if ('mediaSession' in navigator) {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: 'ZenBeats Session',
-        artist: 'Pure Theta Meditation',
+        artist: 'Deep Theta Meditation',
         artwork: [{ src: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=512&h=512&fit=crop', sizes: '512x512', type: 'image/jpeg' }]
       });
       navigator.mediaSession.setActionHandler('play', () => this.resumeIfSuspended());
@@ -88,23 +92,37 @@ class AudioService {
   }
 
   setBinauralVolume(val: number) {
-    if (this.binauralGain && this.ctx) this.binauralGain.gain.setTargetAtTime(val * 0.7, this.ctx.currentTime, 0.2);
+    if (this.binauralGain && this.ctx) {
+      const target = Math.max(0.0001, val * 0.7);
+      this.binauralGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.2);
+    }
   }
 
   setMasterVolume(val: number) {
-    if (this.masterGain && this.ctx) this.masterGain.gain.setTargetAtTime(Math.min(val, 0.95), this.ctx.currentTime, 0.2);
+    if (this.masterGain && this.ctx) {
+      const target = Math.max(0.0001, Math.min(val, 0.95));
+      this.masterGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.2);
+    }
   }
 
   setNatureVolume(val: number) {
-    if (this.natureGain && this.ctx) this.natureGain.gain.setTargetAtTime(val * 0.9, this.ctx.currentTime, 0.2);
+    if (this.natureGain && this.ctx) {
+      const target = Math.max(0.0001, val * 0.9);
+      this.natureGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.2);
+    }
   }
 
   setNoiseVolume(val: number) {
-    if (this.noiseGain && this.ctx) this.noiseGain.gain.setTargetAtTime(val * 0.4, this.ctx.currentTime, 0.2);
+    if (this.noiseGain && this.ctx) {
+      const target = Math.max(0.0001, val * 0.4);
+      this.noiseGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.2);
+    }
   }
 
   updateFrequency(freq: number) {
-    if (this.rightOsc && this.ctx) this.rightOsc.frequency.setTargetAtTime(this.binauralBaseFreq + freq, this.ctx.currentTime, 0.2);
+    if (this.rightOsc && this.ctx) {
+      this.rightOsc.frequency.setTargetAtTime(this.binauralBaseFreq + freq, this.ctx.currentTime, 0.2);
+    }
   }
 
   updateNatures(selectedNatures: NatureSound[]) {
@@ -143,19 +161,24 @@ class AudioService {
   stop() {
     if (!this.ctx || !this.masterGain) return;
     const now = this.ctx.currentTime;
-    this.masterGain.gain.linearRampToValueAtTime(0, now + 0.8);
+    this.masterGain.gain.cancelScheduledValues(now);
+    this.masterGain.gain.exponentialRampToValueAtTime(0.0001, now + 1.2);
+    
     setTimeout(() => {
       this.stopNodesImmediately();
       if (this.mediaStreamElement) this.mediaStreamElement.pause();
-    }, 900);
+    }, 1300);
+    
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
   }
 
   private stopNodesImmediately() {
     try { this.leftOsc?.stop(); } catch(e) {}
     try { this.rightOsc?.stop(); } catch(e) {}
+    try { this.heartbeatSource?.stop(); } catch(e) {}
     this.leftOsc = null;
     this.rightOsc = null;
+    this.heartbeatSource = null;
     this.natureNodes.forEach(n => this.stopNatureNode(n));
     this.natureNodes.clear();
     if (this.colorNoiseNode) {
@@ -170,31 +193,43 @@ class AudioService {
     
     const now = this.ctx!.currentTime;
     this.masterGain!.gain.cancelScheduledValues(now);
-    this.masterGain!.gain.setValueAtTime(0, now);
+    this.masterGain!.gain.setValueAtTime(0.0001, now);
+
+    // Heartbeat osc to keep the background process hot
+    this.heartbeatSource = this.ctx!.createOscillator();
+    this.heartbeatSource.frequency.value = 1; // Inaudible
+    const silentGain = this.ctx!.createGain();
+    silentGain.gain.value = 0.0001;
+    this.heartbeatSource.connect(silentGain).connect(this.mediaStreamDestination!);
+    this.heartbeatSource.start(now);
 
     const merger = this.ctx!.createChannelMerger(2);
     this.leftOsc = this.ctx!.createOscillator();
     this.rightOsc = this.ctx!.createOscillator();
     this.leftOsc.frequency.value = this.binauralBaseFreq;
     this.rightOsc.frequency.value = this.binauralBaseFreq + freq;
+    
     this.leftOsc.connect(merger, 0, 0);
     this.rightOsc.connect(merger, 0, 1);
     merger.connect(this.binauralGain!);
+    
     this.leftOsc.start(now);
     this.rightOsc.start(now);
 
     this.updateNatures(natures);
     this.updateNoise(noise);
     
-    this.masterGain!.gain.linearRampToValueAtTime(targetMasterVolume, now + this.FADE_DURATION);
+    this.masterGain!.gain.exponentialRampToValueAtTime(Math.max(0.0001, targetMasterVolume), now + this.FADE_DURATION);
     if (this.mediaStreamElement) await this.mediaStreamElement.play().catch(() => {});
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
   }
 
   private createNoiseBuffer(type: 'white' | 'pink' | 'brown' | 'green' = 'white') {
-    const bufferSize = 2 * this.ctx!.sampleRate;
+    const duration = 8; // 8 seconds buffer for long-term stability
+    const bufferSize = duration * this.ctx!.sampleRate;
     const buffer = this.ctx!.createBuffer(1, bufferSize, this.ctx!.sampleRate);
     const output = buffer.getChannelData(0);
+
     if (type === 'white') {
       for (let i = 0; i < bufferSize; i++) output[i] = Math.random() * 2 - 1;
     } else if (type === 'pink') {
@@ -207,8 +242,7 @@ class AudioService {
         b3 = 0.86650 * b3 + white * 0.3104856;
         b4 = 0.55000 * b4 + white * 0.5329522;
         b5 = -0.7616 * b5 - white * 0.0168980;
-        output[i] = b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362;
-        output[i] *= 0.11; 
+        output[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.11;
         b6 = white * 0.115926;
       }
     } else {
@@ -220,6 +254,14 @@ class AudioService {
         output[i] *= 3.5;
       }
     }
+
+    // Crossfade the loop point to avoid clicks
+    const crossfadeSamples = Math.floor(0.1 * this.ctx!.sampleRate);
+    for (let i = 0; i < crossfadeSamples; i++) {
+      const alpha = i / crossfadeSamples;
+      output[i] = output[i] * alpha + output[bufferSize - crossfadeSamples + i] * (1 - alpha);
+    }
+    
     return buffer;
   }
 

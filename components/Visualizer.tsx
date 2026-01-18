@@ -16,17 +16,23 @@ const Visualizer: React.FC<VisualizerProps> = ({ isPlaying }) => {
     if (!ctx) return;
 
     const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-    ctx.scale(dpr, dpr);
+    const updateSize = () => {
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+    
+    updateSize();
 
     let phase = 0;
+    const TWO_PI = Math.PI * 2;
 
     const animate = () => {
-      ctx.clearRect(0, 0, rect.width, rect.height);
-      const width = rect.width;
-      const height = rect.height;
+      const width = canvas.width / dpr;
+      const height = canvas.height / dpr;
+      
+      ctx.clearRect(0, 0, width, height);
       const isDark = document.documentElement.classList.contains('dark');
 
       if (!isPlaying) {
@@ -42,18 +48,20 @@ const Visualizer: React.FC<VisualizerProps> = ({ isPlaying }) => {
 
       // 5Hz Primary Wave
       ctx.beginPath();
-      const gradient = ctx.createLinearGradient(0, 0, width, 0);
       const color = isDark ? '56, 189, 248' : '14, 165, 233';
-      const opacity = isDark ? 0.25 : 0.5;
+      const opacity = isDark ? 0.25 : 0.4;
       
+      const gradient = ctx.createLinearGradient(0, 0, width, 0);
       gradient.addColorStop(0, `rgba(${color}, 0)`);
       gradient.addColorStop(0.5, `rgba(${color}, ${opacity})`);
       gradient.addColorStop(1, `rgba(${color}, 0)`);
       
       ctx.strokeStyle = gradient;
-      ctx.lineWidth = isDark ? 3 : 4;
+      ctx.lineWidth = isDark ? 2 : 3;
 
-      for (let x = 0; x < width; x++) {
+      // Draw with slightly fewer points for CPU optimization
+      const step = 2;
+      for (let x = 0; x < width; x += step) {
         const wave = Math.sin(x * 0.02 + phase) * (height / 6);
         const y = height / 2 + wave;
         if (x === 0) ctx.moveTo(x, y);
@@ -63,16 +71,17 @@ const Visualizer: React.FC<VisualizerProps> = ({ isPlaying }) => {
 
       // Soft secondary wave
       ctx.beginPath();
-      ctx.strokeStyle = isDark ? 'rgba(56, 189, 248, 0.05)' : 'rgba(14, 165, 233, 0.15)';
+      ctx.strokeStyle = isDark ? 'rgba(56, 189, 248, 0.03)' : 'rgba(14, 165, 233, 0.1)';
       ctx.lineWidth = 1;
-      for (let x = 0; x < width; x++) {
+      for (let x = 0; x < width; x += 4) {
         const y = height / 2 + Math.cos(x * 0.01 + phase * 0.4) * (height / 4);
         if (x === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       }
       ctx.stroke();
 
-      phase += 0.03;
+      // Keep phase in reasonable range to avoid precision artifacts over hours
+      phase = (phase + 0.025) % TWO_PI;
       requestRef.current = requestAnimationFrame(animate);
     };
 
