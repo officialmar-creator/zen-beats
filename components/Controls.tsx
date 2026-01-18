@@ -33,8 +33,10 @@ const Controls: React.FC<ControlsProps> = ({ settings, updateSettings, disabled 
   const natureMeta: Record<NatureSound, { img: string }> = {
     [NatureSound.SEA]: { img: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&q=80&w=400' }, 
     [NatureSound.RAIN]: { img: 'https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?auto=format&fit=crop&q=80&w=400' },
+    // Updated Birds to a vibrant Tropical Toucan
     [NatureSound.BIRDS]: { img: 'https://images.unsplash.com/photo-1550853024-fae8cd4be47f?auto=format&fit=crop&q=80&w=400' }, 
     [NatureSound.FOREST]: { img: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&q=80&w=400' },
+    // Updated Wind to a more vibrant and dynamic green scene of trees
     [NatureSound.WIND]: { img: 'https://images.unsplash.com/photo-1530906358829-e84b2769270f?auto=format&fit=crop&q=80&w=400' }, 
     [NatureSound.NIGHT]: { img: 'https://images.unsplash.com/photo-1501418611786-e29f9929fe03?auto=format&fit=crop&q=80&w=400' },
     [NatureSound.NONE]: { img: '' }
