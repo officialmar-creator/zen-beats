@@ -33,7 +33,7 @@ const Controls: React.FC<ControlsProps> = ({ settings, updateSettings, disabled 
   const natureMeta: Record<NatureSound, { img: string }> = {
     [NatureSound.SEA]: { img: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&q=80&w=400' }, 
     [NatureSound.RAIN]: { img: 'https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?auto=format&fit=crop&q=80&w=400' },
-    [NatureSound.BIRDS]: { img: 'https://images.unsplash.com/photo-1552728089-57bdde30937c?auto=format&fit=crop&q=80&w=400' }, 
+    [NatureSound.BIRDS]: { img: 'https://images.unsplash.com/photo-1550853024-fae8cd4be47f?auto=format&fit=crop&q=80&w=400' }, 
     [NatureSound.FOREST]: { img: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&q=80&w=400' },
     [NatureSound.WIND]: { img: 'https://images.unsplash.com/photo-1530906358829-e84b2769270f?auto=format&fit=crop&q=80&w=400' }, 
     [NatureSound.NIGHT]: { img: 'https://images.unsplash.com/photo-1501418611786-e29f9929fe03?auto=format&fit=crop&q=80&w=400' },
@@ -74,7 +74,7 @@ const Controls: React.FC<ControlsProps> = ({ settings, updateSettings, disabled 
               <button
                 key={sound}
                 onClick={() => toggleNature(sound)}
-                className={`relative h-28 rounded-[24px] overflow-hidden transition-all border-2 flex items-center justify-center ${
+                className={`relative h-28 rounded-[24px] overflow-hidden transition-all border-2 flex items-center justify-center bg-slate-100 dark:bg-slate-900 ${
                   isActive ? 'border-sky-500 shadow-2xl ring-4 ring-sky-500/10' : 'border-transparent dark:border-slate-900'
                 } active:scale-95`}
               >
@@ -83,7 +83,7 @@ const Controls: React.FC<ControlsProps> = ({ settings, updateSettings, disabled 
                   style={{ backgroundImage: `url(${natureMeta[sound].img})` }}
                 />
                 <div className={`absolute inset-0 transition-opacity ${isActive ? 'bg-black/20' : 'bg-black/60'}`} />
-                <span className={`relative text-[10px] font-black uppercase tracking-[0.2em] text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)] z-10 ${isActive ? 'scale-110' : 'opacity-90'}`}>
+                <span className={`relative text-[10px] font-black uppercase tracking-[0.2em] text-white drop-shadow-[0_4px_12px_rgba(0,0,0,1)] z-10 ${isActive ? 'scale-110' : 'opacity-90'}`}>
                   {sound}
                 </span>
               </button>

@@ -347,14 +347,14 @@ class AudioService {
     rainSource.start();
 
     const chirp = () => {
-      if (!this.natureNodes.has(NatureSound.BIRDS)) return;
+      if (!this.natureNodes.has(NatureSound.BIRDS) || !this.ctx) return;
       
-      const now = this.ctx!.currentTime;
+      const now = this.ctx.currentTime;
       const count = 4 + Math.floor(Math.random() * 6); 
       
       for(let i=0; i<count; i++) {
-        const osc = this.ctx!.createOscillator();
-        const g = this.ctx!.createGain();
+        const osc = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
         const startTime = now + (i * (0.06 + Math.random() * 0.15));
         
         osc.type = 'sine';
@@ -365,4 +365,27 @@ class AudioService {
         if (variation > 0.6) { baseFreq = 4200; sweep = 2000; }
         else if (variation < 0.2) { baseFreq = 1600; sweep = 500; }
 
-        osc.frequency.setValueAt
+        osc.frequency.setValueAtTime(baseFreq + Math.random() * 600, startTime);
+        const direction = Math.random() > 0.4 ? 1 : -1;
+        osc.frequency.exponentialRampToValueAtTime(baseFreq + (sweep * direction) + Math.random() * 600, startTime + 0.1);
+        osc.frequency.exponentialRampToValueAtTime(baseFreq + (Math.random() * 400), startTime + 0.2);
+        
+        g.gain.setValueAtTime(0, startTime);
+        g.gain.linearRampToValueAtTime(0.12 + Math.random() * 0.08, startTime + 0.03);
+        g.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.25 + Math.random() * 0.4);
+        
+        osc.connect(g).connect(this.natureGain!);
+        osc.start(startTime);
+        osc.stop(startTime + 0.7);
+      }
+      
+      const nextChirp = 50 + Math.random() * 1000; 
+      const timer = window.setTimeout(chirp, nextChirp);
+      this.natureNodes.set(NatureSound.BIRDS, { timer, breezeSource, rainSource });
+    };
+    
+    this.natureNodes.set(NatureSound.BIRDS, { timer: window.setTimeout(chirp, 100), breezeSource, rainSource });
+  }
+}
+
+export const audioService = new AudioService();
