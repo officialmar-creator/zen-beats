@@ -34,7 +34,7 @@ const Controls: React.FC<ControlsProps> = ({ settings, updateSettings, disabled 
   const natureMeta: Record<NatureSound, { img: string }> = {
     [NatureSound.SEA]: { img: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&q=80&w=400' }, 
     [NatureSound.RAIN]: { img: 'https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?auto=format&fit=crop&q=80&w=400' },
-    [NatureSound.BIRDS]: { img: 'https://images.unsplash.com/photo-1516939884455-1445c8652f83?auto=format&fit=crop&q=80&w=400' }, // Updated to tropical bird/forest
+    [NatureSound.BIRDS]: { img: 'https://images.unsplash.com/photo-1590273466070-40c466b4432d?auto=format&fit=crop&q=80&w=400' }, 
     [NatureSound.FOREST]: { img: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&q=80&w=400' },
     [NatureSound.WIND]: { img: 'https://images.unsplash.com/photo-1530906358829-e84b2769270f?auto=format&fit=crop&q=80&w=400' }, 
     [NatureSound.NIGHT]: { img: 'https://images.unsplash.com/photo-1501418611786-e29f9929fe03?auto=format&fit=crop&q=80&w=400' },
@@ -84,7 +84,7 @@ const Controls: React.FC<ControlsProps> = ({ settings, updateSettings, disabled 
                   style={{ backgroundImage: `url(${natureMeta[sound].img})` }}
                 />
                 <div className={`absolute inset-0 transition-opacity ${isActive ? 'bg-black/20' : 'bg-black/60'}`} />
-                <span className={`relative text-[10px] font-black uppercase tracking-[0.2em] text-white drop-shadow-md z-10 ${isActive ? 'scale-110' : 'opacity-90'}`}>
+                <span className={`relative text-[10px] font-black uppercase tracking-[0.2em] text-white drop-shadow-xl z-10 ${isActive ? 'scale-110' : 'opacity-90'}`}>
                   {sound}
                 </span>
               </button>
@@ -113,7 +113,7 @@ const Controls: React.FC<ControlsProps> = ({ settings, updateSettings, disabled 
         </div>
       </section>
 
-      {/* Mixer Dashboard - SOLID SLATE-950 IN DARK MODE */}
+      {/* Mixer Dashboard */}
       <section className="bg-white dark:bg-slate-950 p-8 rounded-[40px] border border-slate-200 dark:border-slate-800 shadow-2xl dark:shadow-none space-y-8 transition-colors duration-400">
         <div className="flex flex-col items-center space-y-1">
           <h3 className="text-[10px] font-black uppercase text-slate-900 dark:text-slate-400 tracking-[0.2em]">Mixer</h3>
