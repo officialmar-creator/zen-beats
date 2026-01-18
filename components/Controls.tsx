@@ -33,7 +33,7 @@ const Controls: React.FC<ControlsProps> = ({ settings, updateSettings, disabled 
   const natureMeta: Record<NatureSound, { img: string }> = {
     [NatureSound.SEA]: { img: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&q=80&w=400' }, 
     [NatureSound.RAIN]: { img: 'https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?auto=format&fit=crop&q=80&w=400' },
-    [NatureSound.BIRDS]: { img: 'https://images.unsplash.com/photo-1473448912268-2022ce9509d8?auto=format&fit=crop&q=80&w=400' }, 
+    [NatureSound.BIRDS]: { img: 'https://images.unsplash.com/photo-1552728089-57bdde30937c?auto=format&fit=crop&q=80&w=400' }, 
     [NatureSound.FOREST]: { img: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&q=80&w=400' },
     [NatureSound.WIND]: { img: 'https://images.unsplash.com/photo-1530906358829-e84b2769270f?auto=format&fit=crop&q=80&w=400' }, 
     [NatureSound.NIGHT]: { img: 'https://images.unsplash.com/photo-1501418611786-e29f9929fe03?auto=format&fit=crop&q=80&w=400' },
@@ -83,7 +83,7 @@ const Controls: React.FC<ControlsProps> = ({ settings, updateSettings, disabled 
                   style={{ backgroundImage: `url(${natureMeta[sound].img})` }}
                 />
                 <div className={`absolute inset-0 transition-opacity ${isActive ? 'bg-black/20' : 'bg-black/60'}`} />
-                <span className={`relative text-[10px] font-black uppercase tracking-[0.2em] text-white drop-shadow-2xl z-10 ${isActive ? 'scale-110' : 'opacity-90'}`}>
+                <span className={`relative text-[10px] font-black uppercase tracking-[0.2em] text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)] z-10 ${isActive ? 'scale-110' : 'opacity-90'}`}>
                   {sound}
                 </span>
               </button>
