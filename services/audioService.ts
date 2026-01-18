@@ -2,6 +2,7 @@ import { NatureSound, NoiseColor } from '../types';
 
 class AudioService {
   private ctx: AudioContext | null = null;
+  private compressor: DynamicsCompressorNode | null = null;
   private masterGain: GainNode | null = null;
   private binauralGain: GainNode | null = null;
   private natureGain: GainNode | null = null;
@@ -54,11 +55,22 @@ class AudioService {
     this.mediaStreamElement.volume = 1.0; 
     document.body.appendChild(this.mediaStreamElement);
 
+    // CRITICAL: Prevent Crackling with a Dynamics Compressor
+    // This squashes peaks before they hit the output
+    this.compressor = this.ctx.createDynamicsCompressor();
+    this.compressor.threshold.setValueAtTime(-24, this.ctx.currentTime);
+    this.compressor.knee.setValueAtTime(30, this.ctx.currentTime);
+    this.compressor.ratio.setValueAtTime(12, this.ctx.currentTime);
+    this.compressor.attack.setValueAtTime(0.003, this.ctx.currentTime);
+    this.compressor.release.setValueAtTime(0.25, this.ctx.currentTime);
+
     this.masterGain = this.ctx.createGain();
     this.masterGain.gain.value = 0;
-    this.masterGain.connect(this.ctx.destination);
     
-    this.masterGain.connect(this.mediaStreamDestination);
+    // Path: Sources -> Individual Gains -> Master Gain -> Compressor -> Destination
+    this.masterGain.connect(this.compressor);
+    this.compressor.connect(this.ctx.destination);
+    this.compressor.connect(this.mediaStreamDestination);
     
     this.binauralGain = this.ctx.createGain();
     this.binauralGain.connect(this.masterGain);
@@ -94,29 +106,30 @@ class AudioService {
 
   setBinauralVolume(val: number) {
     if (this.binauralGain && this.ctx) {
-      const target = Math.max(0.0001, val * 0.7);
-      this.binauralGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.2);
+      // Scale down slightly to leave room for nature sounds
+      const target = Math.max(0.0001, val * 0.45);
+      this.binauralGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.15);
     }
   }
 
   setMasterVolume(val: number) {
     if (this.masterGain && this.ctx) {
-      const target = Math.max(0.0001, Math.min(val, 0.95));
-      this.masterGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.2);
+      const target = Math.max(0.0001, Math.min(val, 0.9));
+      this.masterGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.15);
     }
   }
 
   setNatureVolume(val: number) {
     if (this.natureGain && this.ctx) {
-      const target = Math.max(0.0001, val * 0.9);
-      this.natureGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.2);
+      const target = Math.max(0.0001, val * 0.6);
+      this.natureGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.15);
     }
   }
 
   setNoiseVolume(val: number) {
     if (this.noiseGain && this.ctx) {
-      const target = Math.max(0.0001, val * 0.4);
-      this.noiseGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.2);
+      const target = Math.max(0.0001, val * 0.2);
+      this.noiseGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.15);
     }
   }
 
@@ -166,12 +179,12 @@ class AudioService {
     if (!this.ctx || !this.masterGain) return;
     const now = this.ctx.currentTime;
     this.masterGain.gain.cancelScheduledValues(now);
-    this.masterGain.gain.exponentialRampToValueAtTime(0.0001, now + 1.2);
+    this.masterGain.gain.setTargetAtTime(0.0001, now, 0.3);
     
     setTimeout(() => {
       this.stopNodesImmediately();
       if (this.mediaStreamElement) this.mediaStreamElement.pause();
-    }, 1300);
+    }, 1000);
     
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
   }
@@ -202,7 +215,7 @@ class AudioService {
     this.heartbeatSource = this.ctx!.createOscillator();
     this.heartbeatSource.frequency.value = 440; 
     const silentGain = this.ctx!.createGain();
-    silentGain.gain.value = 0.0001; 
+    silentGain.gain.value = 0.00001; 
     this.heartbeatSource.connect(silentGain).connect(this.mediaStreamDestination!);
     this.heartbeatSource.start(now);
 
@@ -222,7 +235,7 @@ class AudioService {
     this.updateNatures(natures);
     this.updateNoise(noise);
     
-    this.masterGain!.gain.exponentialRampToValueAtTime(Math.max(0.0001, targetMasterVolume), now + this.FADE_DURATION);
+    this.masterGain!.gain.setTargetAtTime(Math.max(0.0001, targetMasterVolume), now, 0.4);
     
     if (this.mediaStreamElement) {
       this.mediaStreamElement.play().catch(e => console.error("MediaStream play error", e));
@@ -293,27 +306,27 @@ class AudioService {
 
     switch (type) {
       case NatureSound.RAIN: 
-        filter.type = 'lowpass'; filter.frequency.value = 1400; mod.gain.value = 0.3; 
+        filter.type = 'lowpass'; filter.frequency.value = 1400; mod.gain.value = 0.25; 
         break;
       case NatureSound.WIND: 
-        filter.type = 'bandpass'; filter.frequency.value = 600; filter.Q.value = 1.0; mod.gain.value = 0.3;
+        filter.type = 'bandpass'; filter.frequency.value = 600; filter.Q.value = 1.0; mod.gain.value = 0.25;
         lfo = this.ctx.createOscillator(); lfo.frequency.value = 0.15;
         lfoGain = this.ctx.createGain(); lfoGain.gain.value = 400;
         lfo.connect(lfoGain).connect(filter.frequency);
         lfo.start(now);
         break;
       case NatureSound.SEA: 
-        filter.type = 'lowpass'; filter.frequency.value = 600; mod.gain.value = 0.3;
+        filter.type = 'lowpass'; filter.frequency.value = 600; mod.gain.value = 0.25;
         lfo = this.ctx.createOscillator(); lfo.frequency.value = 0.12; 
         lfoGain = this.ctx.createGain(); lfoGain.gain.value = 0.25;
         lfo.connect(lfoGain).connect(mod.gain);
         lfo.start(now);
         break;
       case NatureSound.NIGHT: 
-        filter.type = 'highpass'; filter.frequency.value = 5000; mod.gain.value = 0.01;
+        filter.type = 'highpass'; filter.frequency.value = 5000; mod.gain.value = 0.008;
         break;
       case NatureSound.FOREST: 
-        filter.type = 'highpass'; filter.frequency.value = 2500; mod.gain.value = 0.12; 
+        filter.type = 'highpass'; filter.frequency.value = 2500; mod.gain.value = 0.1; 
         break;
     }
     source.start(now);
@@ -331,7 +344,7 @@ class AudioService {
     breezeFilter.frequency.value = 1100;
     breezeFilter.Q.value = 0.5;
     const breezeGain = this.ctx.createGain();
-    breezeGain.gain.value = 0.35; 
+    breezeGain.gain.value = 0.25; 
     breezeSource.connect(breezeFilter).connect(breezeGain).connect(this.natureGain!);
     breezeSource.start();
 
@@ -342,7 +355,7 @@ class AudioService {
     rainFilter.type = 'lowpass';
     rainFilter.frequency.value = 1600;
     const rainGain = this.ctx.createGain();
-    rainGain.gain.value = 0.22; 
+    rainGain.gain.value = 0.15; 
     rainSource.connect(rainFilter).connect(rainGain).connect(this.natureGain!);
     rainSource.start();
 
@@ -371,20 +384,20 @@ class AudioService {
         osc.frequency.exponentialRampToValueAtTime(baseFreq + (Math.random() * 400), startTime + 0.2);
         
         g.gain.setValueAtTime(0, startTime);
-        g.gain.linearRampToValueAtTime(0.12 + Math.random() * 0.08, startTime + 0.03);
+        g.gain.linearRampToValueAtTime(0.08, startTime + 0.03);
         g.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.25 + Math.random() * 0.4);
         
         osc.connect(g).connect(this.natureGain!);
         osc.start(startTime);
-        osc.stop(startTime + 0.7);
+        osc.stop(startTime + 0.8);
       }
       
-      const nextChirp = 50 + Math.random() * 1000; 
+      const nextChirp = 1000 + Math.random() * 2000; 
       const timer = window.setTimeout(chirp, nextChirp);
       this.natureNodes.set(NatureSound.BIRDS, { timer, breezeSource, rainSource });
     };
     
-    this.natureNodes.set(NatureSound.BIRDS, { timer: window.setTimeout(chirp, 100), breezeSource, rainSource });
+    this.natureNodes.set(NatureSound.BIRDS, { timer: window.setTimeout(chirp, 500), breezeSource, rainSource });
   }
 }
 
