@@ -29,6 +29,9 @@ class AudioService {
   // Persistence elements
   private mediaStreamDestination: MediaStreamAudioDestinationNode | null = null;
   private htmlAudioElement: HTMLAudioElement | null = null;
+  private silentLoop: HTMLAudioElement | null = null;
+
+  private readonly FADE_TIME = 0.15; // 150ms for smooth transitions
 
   constructor() {
     this.handleVisibility = this.handleVisibility.bind(this);
@@ -44,33 +47,35 @@ class AudioService {
   init() {
     if (this.ctx) return;
     
+    // Auto-detect best sample rate for device to prevent crackling
     this.ctx = new (window.AudioContext || (window as any).webkitAudioContext)({
-      latencyHint: 'playback',
-      sampleRate: 44100 
+      latencyHint: 'playback'
     });
 
-    // Create a MediaStream destination for the AudioContext
+    // Strategy 1: MediaStream Routing
     this.mediaStreamDestination = this.ctx.createMediaStreamDestination();
-    
-    // Create an actual HTML Audio element to "play" the context's stream.
-    // This is the primary trick to keep mobile OS from killing the audio process.
     this.htmlAudioElement = new Audio();
     this.htmlAudioElement.srcObject = this.mediaStreamDestination.stream;
     this.htmlAudioElement.setAttribute('playsinline', 'true');
     this.htmlAudioElement.style.display = 'none';
     document.body.appendChild(this.htmlAudioElement);
 
+    // Strategy 2: Silent MP3 Loop (The most reliable trick for iOS lock-screen)
+    // 1-second silent MP3
+    this.silentLoop = new Audio('data:audio/mpeg;base64,SUQzBAAAAAABEVRYWFhYAAAAEAAAAL3NpbGVudC1hdWRpby8v//uQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAcea406AAAAAD//7kAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAcea406AAAAAD//7kAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAcea406AAAAAD');
+    this.silentLoop.loop = true;
+    this.silentLoop.volume = 0.01;
+
     this.compressor = this.ctx.createDynamicsCompressor();
-    this.compressor.threshold.setValueAtTime(-20, this.ctx.currentTime);
-    this.compressor.knee.setValueAtTime(30, this.ctx.currentTime);
-    this.compressor.ratio.setValueAtTime(10, this.ctx.currentTime);
+    this.compressor.threshold.setValueAtTime(-18, this.ctx.currentTime);
+    this.compressor.knee.setValueAtTime(25, this.ctx.currentTime);
+    this.compressor.ratio.setValueAtTime(12, this.ctx.currentTime);
     this.compressor.attack.setValueAtTime(0.003, this.ctx.currentTime);
     this.compressor.release.setValueAtTime(0.25, this.ctx.currentTime);
 
     this.masterGain = this.ctx.createGain();
     this.masterGain.gain.value = 0.0001;
     
-    // Route: Everything -> MasterGain -> Compressor -> BOTH Real Destination and MediaStream
     this.masterGain.connect(this.compressor);
     this.compressor.connect(this.ctx.destination);
     this.compressor.connect(this.mediaStreamDestination);
@@ -91,7 +96,7 @@ class AudioService {
     if ('mediaSession' in navigator) {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: 'ZenBeats Meditation',
-        artist: '5Hz Deep Theta',
+        artist: '5Hz Theta Session',
         artwork: [{ src: 'https://images.unsplash.com/photo-1552728089-57bdde30937c?w=512&h=512&fit=crop', sizes: '512x512', type: 'image/jpeg' }]
       });
       navigator.mediaSession.setActionHandler('play', () => this.resumeIfSuspended());
@@ -105,47 +110,49 @@ class AudioService {
       await this.ctx!.resume();
     }
     if (this.htmlAudioElement && this.htmlAudioElement.paused) {
-      await this.htmlAudioElement.play().catch(e => console.warn("Persistence audio play failed", e));
+      await this.htmlAudioElement.play().catch(() => {});
+    }
+    if (this.silentLoop && this.silentLoop.paused) {
+      await this.silentLoop.play().catch(() => {});
     }
   }
 
   setBinauralVolume(val: number) {
     if (this.binauralGain && this.ctx) {
       const target = Math.max(0.0001, val * 0.4);
-      this.binauralGain.gain.cancelScheduledValues(this.ctx.currentTime);
-      this.binauralGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.1);
+      const now = this.ctx.currentTime;
+      this.binauralGain.gain.setTargetAtTime(target, now, this.FADE_TIME);
     }
   }
 
   setMasterVolume(val: number) {
     if (this.masterGain && this.ctx) {
       const target = Math.max(0.0001, Math.min(val, 0.9));
-      this.masterGain.gain.cancelScheduledValues(this.ctx.currentTime);
-      this.masterGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.2);
+      const now = this.ctx.currentTime;
+      this.masterGain.gain.setTargetAtTime(target, now, this.FADE_TIME);
     }
   }
 
   setNatureVolume(val: number) {
     if (this.natureGain && this.ctx) {
       const target = Math.max(0.0001, val * 0.6);
-      this.natureGain.gain.cancelScheduledValues(this.ctx.currentTime);
-      this.natureGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.1);
+      const now = this.ctx.currentTime;
+      this.natureGain.gain.setTargetAtTime(target, now, this.FADE_TIME);
     }
   }
 
   setNoiseVolume(val: number) {
     if (this.noiseGain && this.ctx) {
       const target = Math.max(0.0001, val * 0.15);
-      this.noiseGain.gain.cancelScheduledValues(this.ctx.currentTime);
-      this.noiseGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.1);
+      const now = this.ctx.currentTime;
+      this.noiseGain.gain.setTargetAtTime(target, now, this.FADE_TIME);
     }
   }
 
   updateFrequency(freq: number) {
     if (this.rightOsc && this.ctx) {
-      // Exponential ramp avoids the frequency "pop"
-      this.rightOsc.frequency.cancelScheduledValues(this.ctx.currentTime);
-      this.rightOsc.frequency.exponentialRampToValueAtTime(this.binauralBaseFreq + freq, this.ctx.currentTime + 0.3);
+      const now = this.ctx.currentTime;
+      this.rightOsc.frequency.exponentialRampToValueAtTime(this.binauralBaseFreq + freq, now + 0.4);
     }
   }
 
@@ -166,7 +173,6 @@ class AudioService {
     const now = this.ctx.currentTime;
     
     if (node.internalGain) {
-      node.internalGain.gain.cancelScheduledValues(now);
       node.internalGain.gain.setTargetAtTime(0.0001, now, 0.05);
     }
 
@@ -176,19 +182,19 @@ class AudioService {
       try { node.lfo?.stop(); } catch(e) {}
       if (node.timer) window.clearTimeout(node.timer);
       this.natureNodes.delete(type);
-    }, 200);
+    }, 250);
   }
 
   updateNoise(color: NoiseColor) {
     if (!this.ctx) return;
     
     if (this.colorNoiseGain) {
-      this.colorNoiseGain.gain.cancelScheduledValues(this.ctx.currentTime);
-      this.colorNoiseGain.gain.setTargetAtTime(0.0001, this.ctx.currentTime, 0.05);
+      const now = this.ctx.currentTime;
+      this.colorNoiseGain.gain.setTargetAtTime(0.0001, now, 0.05);
       const oldNode = this.colorNoiseNode;
       setTimeout(() => {
         try { oldNode?.stop(); } catch(e) {}
-      }, 200);
+      }, 250);
     }
 
     if (color !== NoiseColor.NONE) {
@@ -199,21 +205,20 @@ class AudioService {
       this.colorNoiseNode.loop = true;
       this.colorNoiseNode.connect(this.colorNoiseGain).connect(this.noiseGain!);
       this.colorNoiseNode.start();
-      this.colorNoiseGain.gain.setTargetAtTime(1.0, this.ctx.currentTime, 0.15);
+      this.colorNoiseGain.gain.setTargetAtTime(1.0, this.ctx.currentTime, 0.2);
     }
   }
 
   stop() {
     if (!this.ctx || !this.masterGain) return;
     const now = this.ctx.currentTime;
-    this.masterGain.gain.cancelScheduledValues(now);
-    // Smooth master fade out before stopping generators
-    this.masterGain.gain.setTargetAtTime(0.0001, now, 0.3);
+    this.masterGain.gain.setTargetAtTime(0.0001, now, 0.4);
     
     setTimeout(() => {
       this.cleanupNodes();
       if (this.htmlAudioElement) this.htmlAudioElement.pause();
-    }, 1000);
+      if (this.silentLoop) this.silentLoop.pause();
+    }, 1200);
     
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
   }
@@ -237,7 +242,6 @@ class AudioService {
     if (!this.ctx) this.init();
     const now = this.ctx!.currentTime;
     
-    this.masterGain!.gain.cancelScheduledValues(now);
     this.masterGain!.gain.setValueAtTime(0.0001, now);
 
     const merger = this.ctx!.createChannelMerger(2);
@@ -256,14 +260,13 @@ class AudioService {
     this.updateNatures(natures);
     this.updateNoise(noise);
     
-    // Final master ramp up
-    this.masterGain!.gain.setTargetAtTime(Math.max(0.0001, targetMasterVolume), now, 0.6);
+    this.masterGain!.gain.setTargetAtTime(Math.max(0.0001, targetMasterVolume), now, 0.8);
     
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
   }
 
   private createNoiseBuffer(type: 'white' | 'pink' | 'brown' | 'green' = 'white') {
-    const duration = 10; 
+    const duration = 12; 
     const bufferSize = duration * this.ctx!.sampleRate;
     const buffer = this.ctx!.createBuffer(1, bufferSize, this.ctx!.sampleRate);
     const output = buffer.getChannelData(0);
@@ -293,7 +296,7 @@ class AudioService {
       }
     }
 
-    const crossfadeSamples = Math.floor(0.2 * this.ctx!.sampleRate);
+    const crossfadeSamples = Math.floor(0.3 * this.ctx!.sampleRate);
     for (let i = 0; i < crossfadeSamples; i++) {
       const alpha = i / crossfadeSamples;
       output[i] = output[i] * alpha + output[bufferSize - crossfadeSamples + i] * (1 - alpha);
@@ -327,31 +330,31 @@ class AudioService {
 
     switch (type) {
       case NatureSound.RAIN: 
-        filter.type = 'lowpass'; filter.frequency.value = 1400; mod.gain.value = 0.2; 
+        filter.type = 'lowpass'; filter.frequency.value = 1400; mod.gain.value = 0.18; 
         break;
       case NatureSound.WIND: 
-        filter.type = 'bandpass'; filter.frequency.value = 600; filter.Q.value = 1.0; mod.gain.value = 0.3;
-        lfo = this.ctx.createOscillator(); lfo.frequency.value = 0.15;
-        lfoGain = this.ctx.createGain(); lfoGain.gain.value = 400;
+        filter.type = 'bandpass'; filter.frequency.value = 600; filter.Q.value = 1.0; mod.gain.value = 0.25;
+        lfo = this.ctx.createOscillator(); lfo.frequency.value = 0.12;
+        lfoGain = this.ctx.createGain(); lfoGain.gain.value = 350;
         lfo.connect(lfoGain).connect(filter.frequency);
         lfo.start(now);
         break;
       case NatureSound.SEA: 
-        filter.type = 'lowpass'; filter.frequency.value = 600; mod.gain.value = 0.3;
-        lfo = this.ctx.createOscillator(); lfo.frequency.value = 0.1; 
-        lfoGain = this.ctx.createGain(); lfoGain.gain.value = 0.3;
+        filter.type = 'lowpass'; filter.frequency.value = 550; mod.gain.value = 0.28;
+        lfo = this.ctx.createOscillator(); lfo.frequency.value = 0.08; 
+        lfoGain = this.ctx.createGain(); lfoGain.gain.value = 0.25;
         lfo.connect(lfoGain).connect(mod.gain);
         lfo.start(now);
         break;
       case NatureSound.NIGHT: 
-        filter.type = 'highpass'; filter.frequency.value = 5000; mod.gain.value = 0.007;
+        filter.type = 'highpass'; filter.frequency.value = 5000; mod.gain.value = 0.006;
         break;
       case NatureSound.FOREST: 
-        filter.type = 'highpass'; filter.frequency.value = 2500; mod.gain.value = 0.1; 
+        filter.type = 'highpass'; filter.frequency.value = 2500; mod.gain.value = 0.08; 
         break;
     }
     source.start(now);
-    internalGain.gain.setTargetAtTime(1.0, now, 0.2);
+    internalGain.gain.setTargetAtTime(1.0, now, 0.3);
     this.natureNodes.set(type, { source, filter, mod, lfo, lfoGain, internalGain });
   }
 
@@ -375,36 +378,36 @@ class AudioService {
       if (!this.natureNodes.has(NatureSound.BIRDS) || !this.ctx) return;
       
       const now = this.ctx.currentTime;
-      const count = 3 + Math.floor(Math.random() * 4); 
+      const count = 2 + Math.floor(Math.random() * 3); 
       
       for(let i=0; i<count; i++) {
         const osc = this.ctx.createOscillator();
         const g = this.ctx.createGain();
-        const startTime = now + (i * (0.1 + Math.random() * 0.2));
+        const startTime = now + (i * (0.15 + Math.random() * 0.2));
         
         osc.type = 'sine';
-        let baseFreq = 3000 + Math.random() * 1000;
+        let baseFreq = 3200 + Math.random() * 800;
         osc.frequency.setValueAtTime(baseFreq, startTime);
-        osc.frequency.exponentialRampToValueAtTime(baseFreq + 1000, startTime + 0.12);
+        osc.frequency.exponentialRampToValueAtTime(baseFreq + 800, startTime + 0.15);
         
         g.gain.setValueAtTime(0.0001, startTime);
-        g.gain.linearRampToValueAtTime(0.04, startTime + 0.03);
-        g.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.35);
+        g.gain.linearRampToValueAtTime(0.03, startTime + 0.04);
+        g.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.4);
         
         osc.connect(g).connect(internalGain);
         osc.start(startTime);
-        osc.stop(startTime + 0.5);
+        osc.stop(startTime + 0.6);
       }
       
-      const nextDelay = 3000 + Math.random() * 5000;
+      const nextDelay = 4000 + Math.random() * 6000;
       const timer = window.setTimeout(chirp, nextDelay);
       const existing = this.natureNodes.get(NatureSound.BIRDS);
       if (existing) existing.timer = timer;
     };
     
-    internalGain.gain.setTargetAtTime(1.0, this.ctx.currentTime, 0.3);
+    internalGain.gain.setTargetAtTime(1.0, this.ctx.currentTime, 0.4);
     this.natureNodes.set(NatureSound.BIRDS, { 
-      timer: window.setTimeout(chirp, 1000), 
+      timer: window.setTimeout(chirp, 1500), 
       breezeSource, 
       internalGain 
     });
