@@ -1,3 +1,4 @@
+
 import { NatureSound, NoiseColor } from '../types';
 
 class AudioService {
@@ -18,20 +19,20 @@ class AudioService {
     mod?: GainNode;
     lfo?: OscillatorNode; 
     lfoGain?: GainNode;
-    timer?: number; 
-    breezeSource?: AudioBufferSourceNode;
+    lookaheadTimer?: number;
     internalGain?: GainNode;
+    // Fix: Added breezeSource to the natureNodes map value type to support the birds soundscape
+    breezeSource?: AudioBufferSourceNode;
   }> = new Map();
   
   private colorNoiseNode: AudioBufferSourceNode | null = null;
   private colorNoiseGain: GainNode | null = null;
 
   // Persistence elements
+  private silentAudio: HTMLAudioElement | null = null;
   private mediaStreamDestination: MediaStreamAudioDestinationNode | null = null;
-  private htmlAudioElement: HTMLAudioElement | null = null;
-  private silentLoop: HTMLAudioElement | null = null;
 
-  private readonly FADE_TIME = 0.15; // 150ms for smooth transitions
+  private readonly RAMP_TIME = 0.1; // 100ms standard ramp to avoid clicks
 
   constructor() {
     this.handleVisibility = this.handleVisibility.bind(this);
@@ -40,41 +41,38 @@ class AudioService {
 
   private handleVisibility() {
     if (document.visibilityState === 'visible') {
-      this.resumeIfSuspended().catch(console.error);
+      this.resumeIfSuspended();
     }
   }
 
   init() {
     if (this.ctx) return;
     
-    // Auto-detect best sample rate for device to prevent crackling
-    this.ctx = new (window.AudioContext || (window as any).webkitAudioContext)({
-      latencyHint: 'playback'
-    });
+    // Auto-detect best sample rate for device
+    const AudioCtx = (window.AudioContext || (window as any).webkitAudioContext);
+    this.ctx = new AudioCtx({ latencyHint: 'playback' });
 
-    // Strategy 1: MediaStream Routing
+    // The Golden Fix for iOS/Android Background Play:
+    // 1. Silent Loop MP3 (keeps the media hardware active)
+    this.silentAudio = new Audio('data:audio/mpeg;base64,SUQzBAAAAAABEVRYWFhYAAAAEAAAAL3NpbGVudC1hdWRpby8v//uQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAcea406AAAAAD//7kAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAcea406AAAAAD//7kAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAcea406AAAAAD');
+    this.silentAudio.loop = true;
+    this.silentAudio.volume = 0.01;
+
+    // 2. MediaStream Destination (signals OS that a 'call' or 'stream' is active)
     this.mediaStreamDestination = this.ctx.createMediaStreamDestination();
-    this.htmlAudioElement = new Audio();
-    this.htmlAudioElement.srcObject = this.mediaStreamDestination.stream;
-    this.htmlAudioElement.setAttribute('playsinline', 'true');
-    this.htmlAudioElement.style.display = 'none';
-    document.body.appendChild(this.htmlAudioElement);
-
-    // Strategy 2: Silent MP3 Loop (The most reliable trick for iOS lock-screen)
-    // 1-second silent MP3
-    this.silentLoop = new Audio('data:audio/mpeg;base64,SUQzBAAAAAABEVRYWFhYAAAAEAAAAL3NpbGVudC1hdWRpby8v//uQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAcea406AAAAAD//7kAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAcea406AAAAAD//7kAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAcea406AAAAAD');
-    this.silentLoop.loop = true;
-    this.silentLoop.volume = 0.01;
+    const streamAudio = new Audio();
+    streamAudio.srcObject = this.mediaStreamDestination.stream;
+    streamAudio.play().catch(() => {}); // Start silent stream
 
     this.compressor = this.ctx.createDynamicsCompressor();
-    this.compressor.threshold.setValueAtTime(-18, this.ctx.currentTime);
-    this.compressor.knee.setValueAtTime(25, this.ctx.currentTime);
-    this.compressor.ratio.setValueAtTime(12, this.ctx.currentTime);
-    this.compressor.attack.setValueAtTime(0.003, this.ctx.currentTime);
+    this.compressor.threshold.setValueAtTime(-16, this.ctx.currentTime);
+    this.compressor.knee.setValueAtTime(12, this.ctx.currentTime);
+    this.compressor.ratio.setValueAtTime(4, this.ctx.currentTime);
+    this.compressor.attack.setValueAtTime(0.01, this.ctx.currentTime);
     this.compressor.release.setValueAtTime(0.25, this.ctx.currentTime);
 
     this.masterGain = this.ctx.createGain();
-    this.masterGain.gain.value = 0.0001;
+    this.masterGain.gain.value = 0;
     
     this.masterGain.connect(this.compressor);
     this.compressor.connect(this.ctx.destination);
@@ -95,8 +93,8 @@ class AudioService {
   private setupMediaSession() {
     if ('mediaSession' in navigator) {
       navigator.mediaSession.metadata = new MediaMetadata({
-        title: 'ZenBeats Meditation',
-        artist: '5Hz Theta Session',
+        title: 'ZenBeats',
+        artist: '5Hz Deep Theta',
         artwork: [{ src: 'https://images.unsplash.com/photo-1552728089-57bdde30937c?w=512&h=512&fit=crop', sizes: '512x512', type: 'image/jpeg' }]
       });
       navigator.mediaSession.setActionHandler('play', () => this.resumeIfSuspended());
@@ -109,50 +107,41 @@ class AudioService {
     if (this.ctx!.state === 'suspended') {
       await this.ctx!.resume();
     }
-    if (this.htmlAudioElement && this.htmlAudioElement.paused) {
-      await this.htmlAudioElement.play().catch(() => {});
+    if (this.silentAudio?.paused) {
+      this.silentAudio.play().catch(() => {});
     }
-    if (this.silentLoop && this.silentLoop.paused) {
-      await this.silentLoop.play().catch(() => {});
-    }
+  }
+
+  // Use Linear Ramping to solve clicking
+  private smoothGain(node: GainNode, value: number, time: number = this.RAMP_TIME) {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    node.gain.cancelScheduledValues(now);
+    node.gain.setValueAtTime(node.gain.value, now);
+    node.gain.linearRampToValueAtTime(Math.max(0.0001, value), now + time);
   }
 
   setBinauralVolume(val: number) {
-    if (this.binauralGain && this.ctx) {
-      const target = Math.max(0.0001, val * 0.4);
-      const now = this.ctx.currentTime;
-      this.binauralGain.gain.setTargetAtTime(target, now, this.FADE_TIME);
-    }
+    if (this.binauralGain) this.smoothGain(this.binauralGain, val * 0.4);
   }
 
   setMasterVolume(val: number) {
-    if (this.masterGain && this.ctx) {
-      const target = Math.max(0.0001, Math.min(val, 0.9));
-      const now = this.ctx.currentTime;
-      this.masterGain.gain.setTargetAtTime(target, now, this.FADE_TIME);
-    }
+    if (this.masterGain) this.smoothGain(this.masterGain, Math.min(val, 0.95));
   }
 
   setNatureVolume(val: number) {
-    if (this.natureGain && this.ctx) {
-      const target = Math.max(0.0001, val * 0.6);
-      const now = this.ctx.currentTime;
-      this.natureGain.gain.setTargetAtTime(target, now, this.FADE_TIME);
-    }
+    if (this.natureGain) this.smoothGain(this.natureGain, val * 0.6);
   }
 
   setNoiseVolume(val: number) {
-    if (this.noiseGain && this.ctx) {
-      const target = Math.max(0.0001, val * 0.15);
-      const now = this.ctx.currentTime;
-      this.noiseGain.gain.setTargetAtTime(target, now, this.FADE_TIME);
-    }
+    if (this.noiseGain) this.smoothGain(this.noiseGain, val * 0.1);
   }
 
   updateFrequency(freq: number) {
     if (this.rightOsc && this.ctx) {
       const now = this.ctx.currentTime;
-      this.rightOsc.frequency.exponentialRampToValueAtTime(this.binauralBaseFreq + freq, now + 0.4);
+      this.rightOsc.frequency.cancelScheduledValues(now);
+      this.rightOsc.frequency.setTargetAtTime(this.binauralBaseFreq + freq, now, 0.2);
     }
   }
 
@@ -171,54 +160,53 @@ class AudioService {
   private fadeOutNatureNode(node: any, type: NatureSound) {
     if (!this.ctx) return;
     const now = this.ctx.currentTime;
-    
     if (node.internalGain) {
-      node.internalGain.gain.setTargetAtTime(0.0001, now, 0.05);
+      node.internalGain.gain.cancelScheduledValues(now);
+      node.internalGain.gain.setValueAtTime(node.internalGain.gain.value, now);
+      node.internalGain.gain.linearRampToValueAtTime(0, now + this.RAMP_TIME);
     }
-
+    if (node.lookaheadTimer) window.clearInterval(node.lookaheadTimer);
+    
     setTimeout(() => {
       try { node.source?.stop(); } catch(e) {}
-      try { node.breezeSource?.stop(); } catch(e) {}
       try { node.lfo?.stop(); } catch(e) {}
-      if (node.timer) window.clearTimeout(node.timer);
+      try { node.breezeSource?.stop(); } catch(e) {}
       this.natureNodes.delete(type);
-    }, 250);
+    }, this.RAMP_TIME * 1000 + 50);
   }
 
   updateNoise(color: NoiseColor) {
     if (!this.ctx) return;
     
     if (this.colorNoiseGain) {
-      const now = this.ctx.currentTime;
-      this.colorNoiseGain.gain.setTargetAtTime(0.0001, now, 0.05);
+      this.smoothGain(this.colorNoiseGain, 0, this.RAMP_TIME);
       const oldNode = this.colorNoiseNode;
-      setTimeout(() => {
-        try { oldNode?.stop(); } catch(e) {}
-      }, 250);
+      setTimeout(() => { try { oldNode?.stop(); } catch(e) {} }, 200);
     }
 
     if (color !== NoiseColor.NONE) {
       this.colorNoiseGain = this.ctx.createGain();
-      this.colorNoiseGain.gain.value = 0.0001;
+      this.colorNoiseGain.gain.value = 0;
       this.colorNoiseNode = this.ctx.createBufferSource();
       this.colorNoiseNode.buffer = this.createNoiseBuffer(color.toLowerCase() as any);
       this.colorNoiseNode.loop = true;
       this.colorNoiseNode.connect(this.colorNoiseGain).connect(this.noiseGain!);
       this.colorNoiseNode.start();
-      this.colorNoiseGain.gain.setTargetAtTime(1.0, this.ctx.currentTime, 0.2);
+      this.smoothGain(this.colorNoiseGain, 1.0);
     }
   }
 
   stop() {
     if (!this.ctx || !this.masterGain) return;
     const now = this.ctx.currentTime;
-    this.masterGain.gain.setTargetAtTime(0.0001, now, 0.4);
+    this.masterGain.gain.cancelScheduledValues(now);
+    this.masterGain.gain.setValueAtTime(this.masterGain.gain.value, now);
+    this.masterGain.gain.linearRampToValueAtTime(0, now + 0.5);
     
     setTimeout(() => {
       this.cleanupNodes();
-      if (this.htmlAudioElement) this.htmlAudioElement.pause();
-      if (this.silentLoop) this.silentLoop.pause();
-    }, 1200);
+      if (this.silentAudio) this.silentAudio.pause();
+    }, 600);
     
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
   }
@@ -239,11 +227,7 @@ class AudioService {
     await this.resumeIfSuspended();
     this.cleanupNodes();
     
-    if (!this.ctx) this.init();
     const now = this.ctx!.currentTime;
-    
-    this.masterGain!.gain.setValueAtTime(0.0001, now);
-
     const merger = this.ctx!.createChannelMerger(2);
     this.leftOsc = this.ctx!.createOscillator();
     this.rightOsc = this.ctx!.createOscillator();
@@ -260,13 +244,13 @@ class AudioService {
     this.updateNatures(natures);
     this.updateNoise(noise);
     
-    this.masterGain!.gain.setTargetAtTime(Math.max(0.0001, targetMasterVolume), now, 0.8);
+    this.smoothGain(this.masterGain!, targetMasterVolume, 1.0);
     
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
   }
 
   private createNoiseBuffer(type: 'white' | 'pink' | 'brown' | 'green' = 'white') {
-    const duration = 12; 
+    const duration = 15; 
     const bufferSize = duration * this.ctx!.sampleRate;
     const buffer = this.ctx!.createBuffer(1, bufferSize, this.ctx!.sampleRate);
     const output = buffer.getChannelData(0);
@@ -296,10 +280,11 @@ class AudioService {
       }
     }
 
-    const crossfadeSamples = Math.floor(0.3 * this.ctx!.sampleRate);
-    for (let i = 0; i < crossfadeSamples; i++) {
-      const alpha = i / crossfadeSamples;
-      output[i] = output[i] * alpha + output[bufferSize - crossfadeSamples + i] * (1 - alpha);
+    // Mathematical Seamless Loop Crossfade
+    const fade = Math.floor(0.5 * this.ctx!.sampleRate);
+    for (let i = 0; i < fade; i++) {
+      const alpha = i / fade;
+      output[i] = output[i] * alpha + output[bufferSize - fade + i] * (1 - alpha);
     }
     
     return buffer;
@@ -320,7 +305,7 @@ class AudioService {
     const filter = this.ctx.createBiquadFilter();
     const mod = this.ctx.createGain();
     const internalGain = this.ctx.createGain(); 
-    internalGain.gain.value = 0.0001;
+    internalGain.gain.value = 0;
 
     source.connect(filter).connect(mod).connect(internalGain).connect(this.natureGain!);
     
@@ -340,9 +325,9 @@ class AudioService {
         lfo.start(now);
         break;
       case NatureSound.SEA: 
-        filter.type = 'lowpass'; filter.frequency.value = 550; mod.gain.value = 0.28;
+        filter.type = 'lowpass'; filter.frequency.value = 550; mod.gain.value = 0.3;
         lfo = this.ctx.createOscillator(); lfo.frequency.value = 0.08; 
-        lfoGain = this.ctx.createGain(); lfoGain.gain.value = 0.25;
+        lfoGain = this.ctx.createGain(); lfoGain.gain.value = 0.2;
         lfo.connect(lfoGain).connect(mod.gain);
         lfo.start(now);
         break;
@@ -354,7 +339,7 @@ class AudioService {
         break;
     }
     source.start(now);
-    internalGain.gain.setTargetAtTime(1.0, now, 0.3);
+    this.smoothGain(internalGain, 1.0);
     this.natureNodes.set(type, { source, filter, mod, lfo, lfoGain, internalGain });
   }
 
@@ -362,55 +347,52 @@ class AudioService {
     if (!this.ctx) return;
     
     const internalGain = this.ctx.createGain();
-    internalGain.gain.value = 0.0001;
+    internalGain.gain.value = 0;
     internalGain.connect(this.natureGain!);
 
     const breezeSource = this.ctx.createBufferSource();
     breezeSource.buffer = this.createNoiseBuffer('pink');
     breezeSource.loop = true;
     const breezeFilter = this.ctx.createBiquadFilter();
-    breezeFilter.type = 'bandpass';
-    breezeFilter.frequency.value = 1100;
+    breezeFilter.type = 'bandpass'; breezeFilter.frequency.value = 1100;
     breezeSource.connect(breezeFilter).connect(internalGain);
     breezeSource.start();
 
-    const chirp = () => {
+    // Look-ahead Bird Scheduler for background play
+    let nextBirdTime = this.ctx.currentTime + 1;
+    const scheduler = () => {
       if (!this.natureNodes.has(NatureSound.BIRDS) || !this.ctx) return;
       
-      const now = this.ctx.currentTime;
-      const count = 2 + Math.floor(Math.random() * 3); 
-      
-      for(let i=0; i<count; i++) {
-        const osc = this.ctx.createOscillator();
-        const g = this.ctx.createGain();
-        const startTime = now + (i * (0.15 + Math.random() * 0.2));
+      const scheduleWindow = 5; // Look ahead 5 seconds
+      while (nextBirdTime < this.ctx.currentTime + scheduleWindow) {
+        const startTime = nextBirdTime;
+        const count = 2 + Math.floor(Math.random() * 3);
         
-        osc.type = 'sine';
-        let baseFreq = 3200 + Math.random() * 800;
-        osc.frequency.setValueAtTime(baseFreq, startTime);
-        osc.frequency.exponentialRampToValueAtTime(baseFreq + 800, startTime + 0.15);
-        
-        g.gain.setValueAtTime(0.0001, startTime);
-        g.gain.linearRampToValueAtTime(0.03, startTime + 0.04);
-        g.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.4);
-        
-        osc.connect(g).connect(internalGain);
-        osc.start(startTime);
-        osc.stop(startTime + 0.6);
+        for (let i = 0; i < count; i++) {
+          const chirpStart = startTime + (i * (0.2 + Math.random() * 0.3));
+          const osc = this.ctx.createOscillator();
+          const g = this.ctx.createGain();
+          osc.type = 'sine';
+          const freq = 3200 + Math.random() * 1000;
+          osc.frequency.setValueAtTime(freq, chirpStart);
+          osc.frequency.exponentialRampToValueAtTime(freq + 1000, chirpStart + 0.12);
+          
+          g.gain.setValueAtTime(0, chirpStart);
+          g.gain.linearRampToValueAtTime(0.03, chirpStart + 0.03);
+          g.gain.linearRampToValueAtTime(0, chirpStart + 0.4);
+          
+          osc.connect(g).connect(internalGain);
+          osc.start(chirpStart);
+          osc.stop(chirpStart + 0.5);
+        }
+        nextBirdTime += 6 + Math.random() * 8;
       }
-      
-      const nextDelay = 4000 + Math.random() * 6000;
-      const timer = window.setTimeout(chirp, nextDelay);
-      const existing = this.natureNodes.get(NatureSound.BIRDS);
-      if (existing) existing.timer = timer;
     };
     
-    internalGain.gain.setTargetAtTime(1.0, this.ctx.currentTime, 0.4);
-    this.natureNodes.set(NatureSound.BIRDS, { 
-      timer: window.setTimeout(chirp, 1500), 
-      breezeSource, 
-      internalGain 
-    });
+    const lookaheadTimer = window.setInterval(scheduler, 2000);
+    this.smoothGain(internalGain, 1.0);
+    this.natureNodes.set(NatureSound.BIRDS, { breezeSource, internalGain, lookaheadTimer });
+    scheduler(); // initial run
   }
 }
 
