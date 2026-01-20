@@ -1,4 +1,3 @@
-
 import { NatureSound, NoiseColor } from '../types';
 
 class AudioService {
@@ -138,7 +137,7 @@ class AudioService {
   }
 
   private ramp(param: AudioParam, value: number, immediate: boolean = false) {
-    if (!this.ctx) return;
+    if (!this.ctx || !param || typeof param.setTargetAtTime !== 'function') return;
     const now = this.ctx.currentTime;
     if (immediate) {
       param.cancelScheduledValues(now);
@@ -253,7 +252,8 @@ class AudioService {
     this.updateNatures(natures);
     this.updateNoise(noise);
     
-    this.ramp(this.masterGain!, targetMasterVolume, false);
+    // FIXED: Passed masterGain.gain (AudioParam) instead of masterGain (GainNode)
+    this.ramp(this.masterGain!.gain, targetMasterVolume, false);
     
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
   }
@@ -329,7 +329,6 @@ class AudioService {
         filter.type = 'bandpass'; filter.frequency.value = 600; filter.Q.value = 1.0; mod.gain.value = 0.25;
         lfo = this.ctx.createOscillator(); lfo.frequency.value = 0.12;
         lfoGain = this.ctx.createGain(); lfoGain.gain.value = 350;
-        // Fix for TypeScript ambiguity in chained connect calls with nullable nodes
         lfo.connect(lfoGain!);
         lfoGain.connect(filter.frequency);
         lfo.start(now);
@@ -338,7 +337,6 @@ class AudioService {
         filter.type = 'lowpass'; filter.frequency.value = 550; mod.gain.value = 0.3;
         lfo = this.ctx.createOscillator(); lfo.frequency.value = 0.08; 
         lfoGain = this.ctx.createGain(); lfoGain.gain.value = 0.2;
-        // Fix for TypeScript ambiguity in chained connect calls with nullable nodes
         lfo.connect(lfoGain!);
         lfoGain.connect(mod.gain);
         lfo.start(now);
