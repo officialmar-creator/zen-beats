@@ -11,6 +11,8 @@ class AudioService {
   
   private leftOsc: OscillatorNode | null = null;
   private rightOsc: OscillatorNode | null = null;
+  private leftOscGain: GainNode | null = null;
+  private rightOscGain: GainNode | null = null;
   private binauralBaseFreq = 200;
 
   private natureNodes: Map<NatureSound, { 
@@ -21,7 +23,6 @@ class AudioService {
     lfoGain?: GainNode;
     lookaheadTimer?: number;
     internalGain?: GainNode;
-    // Fix: Added breezeSource to the natureNodes map value type to support the birds soundscape
     breezeSource?: AudioBufferSourceNode;
   }> = new Map();
   
@@ -31,8 +32,9 @@ class AudioService {
   // Persistence elements
   private silentAudio: HTMLAudioElement | null = null;
   private mediaStreamDestination: MediaStreamAudioDestinationNode | null = null;
+  private outputAudioElement: HTMLAudioElement | null = null;
 
-  private readonly RAMP_TIME = 0.1; // 100ms standard ramp to avoid clicks
+  private readonly TIME_CONSTANT = 0.15; // Natural smoothing constant
 
   constructor() {
     this.handleVisibility = this.handleVisibility.bind(this);
@@ -48,34 +50,35 @@ class AudioService {
   init() {
     if (this.ctx) return;
     
-    // Auto-detect best sample rate for device
     const AudioCtx = (window.AudioContext || (window as any).webkitAudioContext);
     this.ctx = new AudioCtx({ latencyHint: 'playback' });
 
-    // The Golden Fix for iOS/Android Background Play:
-    // 1. Silent Loop MP3 (keeps the media hardware active)
+    // 1. SILENT BACKGROUND KICKER
     this.silentAudio = new Audio('data:audio/mpeg;base64,SUQzBAAAAAABEVRYWFhYAAAAEAAAAL3NpbGVudC1hdWRpby8v//uQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAcea406AAAAAD//7kAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAcea406AAAAAD//7kAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAcea406AAAAAD');
     this.silentAudio.loop = true;
     this.silentAudio.volume = 0.01;
 
-    // 2. MediaStream Destination (signals OS that a 'call' or 'stream' is active)
+    // 2. EXCLUSIVE MEDIASTREAM ROUTING (The "Static" Fix)
     this.mediaStreamDestination = this.ctx.createMediaStreamDestination();
-    const streamAudio = new Audio();
-    streamAudio.srcObject = this.mediaStreamDestination.stream;
-    streamAudio.play().catch(() => {}); // Start silent stream
+    this.outputAudioElement = new Audio();
+    this.outputAudioElement.srcObject = this.mediaStreamDestination.stream;
+    this.outputAudioElement.setAttribute('playsinline', 'true');
+    this.outputAudioElement.style.display = 'none';
+    document.body.appendChild(this.outputAudioElement);
 
     this.compressor = this.ctx.createDynamicsCompressor();
-    this.compressor.threshold.setValueAtTime(-16, this.ctx.currentTime);
-    this.compressor.knee.setValueAtTime(12, this.ctx.currentTime);
-    this.compressor.ratio.setValueAtTime(4, this.ctx.currentTime);
-    this.compressor.attack.setValueAtTime(0.01, this.ctx.currentTime);
+    this.compressor.threshold.setValueAtTime(-20, this.ctx.currentTime);
+    this.compressor.knee.setValueAtTime(30, this.ctx.currentTime);
+    this.compressor.ratio.setValueAtTime(10, this.ctx.currentTime);
+    this.compressor.attack.setValueAtTime(0.003, this.ctx.currentTime);
     this.compressor.release.setValueAtTime(0.25, this.ctx.currentTime);
 
     this.masterGain = this.ctx.createGain();
-    this.masterGain.gain.value = 0;
+    this.masterGain.gain.value = 0.0001;
     
+    // Route: EVERYTHING -> MASTER -> COMPRESSOR -> MEDIASTREAM -> OUTPUT AUDIO TAG
+    // We explicitly do NOT connect to ctx.destination to avoid hardware clock conflicts on lock-screen
     this.masterGain.connect(this.compressor);
-    this.compressor.connect(this.ctx.destination);
     this.compressor.connect(this.mediaStreamDestination);
     
     this.binauralGain = this.ctx.createGain();
@@ -87,6 +90,25 @@ class AudioService {
     this.noiseGain = this.ctx.createGain();
     this.noiseGain.connect(this.masterGain);
 
+    // Initial Persistent Oscillators (started once, never stopped)
+    const merger = this.ctx.createChannelMerger(2);
+    this.leftOsc = this.ctx.createOscillator();
+    this.rightOsc = this.ctx.createOscillator();
+    this.leftOscGain = this.ctx.createGain();
+    this.rightOscGain = this.ctx.createGain();
+    this.leftOscGain.gain.value = 0;
+    this.rightOscGain.gain.value = 0;
+
+    this.leftOsc.frequency.value = this.binauralBaseFreq;
+    this.rightOsc.frequency.value = this.binauralBaseFreq + 5;
+
+    this.leftOsc.connect(this.leftOscGain).connect(merger, 0, 0);
+    this.rightOsc.connect(this.rightOscGain).connect(merger, 0, 1);
+    merger.connect(this.binauralGain);
+
+    this.leftOsc.start();
+    this.rightOsc.start();
+
     this.setupMediaSession();
   }
 
@@ -94,7 +116,7 @@ class AudioService {
     if ('mediaSession' in navigator) {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: 'ZenBeats',
-        artist: '5Hz Deep Theta',
+        artist: 'Deep Theta Session',
         artwork: [{ src: 'https://images.unsplash.com/photo-1552728089-57bdde30937c?w=512&h=512&fit=crop', sizes: '512x512', type: 'image/jpeg' }]
       });
       navigator.mediaSession.setActionHandler('play', () => this.resumeIfSuspended());
@@ -110,47 +132,48 @@ class AudioService {
     if (this.silentAudio?.paused) {
       this.silentAudio.play().catch(() => {});
     }
+    if (this.outputAudioElement?.paused) {
+      this.outputAudioElement.play().catch(() => {});
+    }
   }
 
-  // Use Linear Ramping to solve clicking
-  private smoothGain(node: GainNode, value: number, time: number = this.RAMP_TIME) {
+  private ramp(param: AudioParam, value: number, immediate: boolean = false) {
     if (!this.ctx) return;
     const now = this.ctx.currentTime;
-    node.gain.cancelScheduledValues(now);
-    node.gain.setValueAtTime(node.gain.value, now);
-    node.gain.linearRampToValueAtTime(Math.max(0.0001, value), now + time);
+    if (immediate) {
+      param.cancelScheduledValues(now);
+      param.setValueAtTime(value, now);
+    } else {
+      param.setTargetAtTime(value, now, this.TIME_CONSTANT);
+    }
   }
 
   setBinauralVolume(val: number) {
-    if (this.binauralGain) this.smoothGain(this.binauralGain, val * 0.4);
+    if (this.binauralGain) this.ramp(this.binauralGain.gain, val * 0.4);
   }
 
   setMasterVolume(val: number) {
-    if (this.masterGain) this.smoothGain(this.masterGain, Math.min(val, 0.95));
+    if (this.masterGain) this.ramp(this.masterGain.gain, Math.max(0.0001, Math.min(val, 0.95)));
   }
 
   setNatureVolume(val: number) {
-    if (this.natureGain) this.smoothGain(this.natureGain, val * 0.6);
+    if (this.natureGain) this.ramp(this.natureGain.gain, val * 0.6);
   }
 
   setNoiseVolume(val: number) {
-    if (this.noiseGain) this.smoothGain(this.noiseGain, val * 0.1);
+    if (this.noiseGain) this.ramp(this.noiseGain.gain, val * 0.1);
   }
 
   updateFrequency(freq: number) {
     if (this.rightOsc && this.ctx) {
-      const now = this.ctx.currentTime;
-      this.rightOsc.frequency.cancelScheduledValues(now);
-      this.rightOsc.frequency.setTargetAtTime(this.binauralBaseFreq + freq, now, 0.2);
+      this.rightOsc.frequency.setTargetAtTime(this.binauralBaseFreq + freq, this.ctx.currentTime, 0.3);
     }
   }
 
   updateNatures(selectedNatures: NatureSound[]) {
     if (!this.ctx) return;
     this.natureNodes.forEach((node, type) => {
-      if (!selectedNatures.includes(type)) {
-        this.fadeOutNatureNode(node, type);
-      }
+      if (!selectedNatures.includes(type)) this.fadeOutNatureNode(node, type);
     });
     selectedNatures.forEach(n => {
       if (!this.natureNodes.has(n)) this.startNature(n);
@@ -161,9 +184,7 @@ class AudioService {
     if (!this.ctx) return;
     const now = this.ctx.currentTime;
     if (node.internalGain) {
-      node.internalGain.gain.cancelScheduledValues(now);
-      node.internalGain.gain.setValueAtTime(node.internalGain.gain.value, now);
-      node.internalGain.gain.linearRampToValueAtTime(0, now + this.RAMP_TIME);
+      node.internalGain.gain.setTargetAtTime(0, now, 0.1);
     }
     if (node.lookaheadTimer) window.clearInterval(node.lookaheadTimer);
     
@@ -172,16 +193,16 @@ class AudioService {
       try { node.lfo?.stop(); } catch(e) {}
       try { node.breezeSource?.stop(); } catch(e) {}
       this.natureNodes.delete(type);
-    }, this.RAMP_TIME * 1000 + 50);
+    }, 500);
   }
 
   updateNoise(color: NoiseColor) {
     if (!this.ctx) return;
     
     if (this.colorNoiseGain) {
-      this.smoothGain(this.colorNoiseGain, 0, this.RAMP_TIME);
+      this.ramp(this.colorNoiseGain.gain, 0);
       const oldNode = this.colorNoiseNode;
-      setTimeout(() => { try { oldNode?.stop(); } catch(e) {} }, 200);
+      setTimeout(() => { try { oldNode?.stop(); } catch(e) {} }, 500);
     }
 
     if (color !== NoiseColor.NONE) {
@@ -192,59 +213,47 @@ class AudioService {
       this.colorNoiseNode.loop = true;
       this.colorNoiseNode.connect(this.colorNoiseGain).connect(this.noiseGain!);
       this.colorNoiseNode.start();
-      this.smoothGain(this.colorNoiseGain, 1.0);
+      this.ramp(this.colorNoiseGain.gain, 1.0);
     }
   }
 
   stop() {
     if (!this.ctx || !this.masterGain) return;
     const now = this.ctx.currentTime;
-    this.masterGain.gain.cancelScheduledValues(now);
-    this.masterGain.gain.setValueAtTime(this.masterGain.gain.value, now);
-    this.masterGain.gain.linearRampToValueAtTime(0, now + 0.5);
+    this.masterGain.gain.setTargetAtTime(0.0001, now, 0.4);
     
     setTimeout(() => {
-      this.cleanupNodes();
+      this.mutePermanentOscillators();
+      this.natureNodes.forEach((node, type) => this.fadeOutNatureNode(node, type));
+      if (this.colorNoiseNode) {
+        try { this.colorNoiseNode.stop(); } catch(e) {}
+        this.colorNoiseNode = null;
+      }
+      if (this.outputAudioElement) this.outputAudioElement.pause();
       if (this.silentAudio) this.silentAudio.pause();
     }, 600);
     
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
   }
 
-  private cleanupNodes() {
-    try { this.leftOsc?.stop(); } catch(e) {}
-    try { this.rightOsc?.stop(); } catch(e) {}
-    this.leftOsc = null;
-    this.rightOsc = null;
-    this.natureNodes.forEach((node, type) => this.fadeOutNatureNode(node, type));
-    if (this.colorNoiseNode) {
-      try { this.colorNoiseNode.stop(); } catch(e) {}
-      this.colorNoiseNode = null;
-    }
+  private mutePermanentOscillators() {
+    if (this.leftOscGain) this.ramp(this.leftOscGain.gain, 0);
+    if (this.rightOscGain) this.ramp(this.rightOscGain.gain, 0);
   }
 
   async start(natures: NatureSound[], noise: NoiseColor, freq: number, targetMasterVolume: number) {
     await this.resumeIfSuspended();
-    this.cleanupNodes();
+    if (!this.ctx) this.init();
     
-    const now = this.ctx!.currentTime;
-    const merger = this.ctx!.createChannelMerger(2);
-    this.leftOsc = this.ctx!.createOscillator();
-    this.rightOsc = this.ctx!.createOscillator();
-    this.leftOsc.frequency.value = this.binauralBaseFreq;
-    this.rightOsc.frequency.value = this.binauralBaseFreq + freq;
+    // Gate oscillators open
+    if (this.leftOscGain) this.ramp(this.leftOscGain.gain, 1.0);
+    if (this.rightOscGain) this.ramp(this.rightOscGain.gain, 1.0);
     
-    this.leftOsc.connect(merger, 0, 0);
-    this.rightOsc.connect(merger, 0, 1);
-    merger.connect(this.binauralGain!);
-    
-    this.leftOsc.start(now);
-    this.rightOsc.start(now);
-
+    this.updateFrequency(freq);
     this.updateNatures(natures);
     this.updateNoise(noise);
     
-    this.smoothGain(this.masterGain!, targetMasterVolume, 1.0);
+    this.ramp(this.masterGain!, targetMasterVolume, false);
     
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
   }
@@ -280,7 +289,6 @@ class AudioService {
       }
     }
 
-    // Mathematical Seamless Loop Crossfade
     const fade = Math.floor(0.5 * this.ctx!.sampleRate);
     for (let i = 0; i < fade; i++) {
       const alpha = i / fade;
@@ -321,14 +329,18 @@ class AudioService {
         filter.type = 'bandpass'; filter.frequency.value = 600; filter.Q.value = 1.0; mod.gain.value = 0.25;
         lfo = this.ctx.createOscillator(); lfo.frequency.value = 0.12;
         lfoGain = this.ctx.createGain(); lfoGain.gain.value = 350;
-        lfo.connect(lfoGain).connect(filter.frequency);
+        // Fix for TypeScript ambiguity in chained connect calls with nullable nodes
+        lfo.connect(lfoGain!);
+        lfoGain.connect(filter.frequency);
         lfo.start(now);
         break;
       case NatureSound.SEA: 
         filter.type = 'lowpass'; filter.frequency.value = 550; mod.gain.value = 0.3;
         lfo = this.ctx.createOscillator(); lfo.frequency.value = 0.08; 
         lfoGain = this.ctx.createGain(); lfoGain.gain.value = 0.2;
-        lfo.connect(lfoGain).connect(mod.gain);
+        // Fix for TypeScript ambiguity in chained connect calls with nullable nodes
+        lfo.connect(lfoGain!);
+        lfoGain.connect(mod.gain);
         lfo.start(now);
         break;
       case NatureSound.NIGHT: 
@@ -339,7 +351,7 @@ class AudioService {
         break;
     }
     source.start(now);
-    this.smoothGain(internalGain, 1.0);
+    this.ramp(internalGain.gain, 1.0);
     this.natureNodes.set(type, { source, filter, mod, lfo, lfoGain, internalGain });
   }
 
@@ -358,12 +370,11 @@ class AudioService {
     breezeSource.connect(breezeFilter).connect(internalGain);
     breezeSource.start();
 
-    // Look-ahead Bird Scheduler for background play
     let nextBirdTime = this.ctx.currentTime + 1;
     const scheduler = () => {
       if (!this.natureNodes.has(NatureSound.BIRDS) || !this.ctx) return;
       
-      const scheduleWindow = 5; // Look ahead 5 seconds
+      const scheduleWindow = 5; 
       while (nextBirdTime < this.ctx.currentTime + scheduleWindow) {
         const startTime = nextBirdTime;
         const count = 2 + Math.floor(Math.random() * 3);
@@ -390,9 +401,9 @@ class AudioService {
     };
     
     const lookaheadTimer = window.setInterval(scheduler, 2000);
-    this.smoothGain(internalGain, 1.0);
+    this.ramp(internalGain.gain, 1.0);
     this.natureNodes.set(NatureSound.BIRDS, { breezeSource, internalGain, lookaheadTimer });
-    scheduler(); // initial run
+    scheduler();
   }
 }
 
