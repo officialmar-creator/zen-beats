@@ -1,8 +1,8 @@
 {
-  "name": "zenbeats-ios",
+  "name": "zenbeats",
   "version": "1.0.0",
-  "description": "Native iOS Binaural Beats App",
-  "main": "index.js",
+  "type": "module",
+  "description": "ZenBeats Meditation App",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 3000",
     "build": "vite build",
