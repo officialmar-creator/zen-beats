@@ -30,19 +30,42 @@ class AudioService {
 
   // Persistence elements
   private silentAudio: HTMLAudioElement | null = null;
-  private mediaStreamDestination: MediaStreamAudioDestinationNode | null = null;
-  private outputAudioElement: HTMLAudioElement | null = null;
+  private wakeLock: any = null;
+  private isPlaying = false;
 
   private readonly TIME_CONSTANT = 0.15; // Natural smoothing constant
 
   constructor() {
     this.handleVisibility = this.handleVisibility.bind(this);
     document.addEventListener('visibilitychange', this.handleVisibility);
+    window.addEventListener('pageshow', this.handleVisibility);
+    window.addEventListener('focus', this.handleVisibility);
   }
 
   private handleVisibility() {
-    if (document.visibilityState === 'visible') {
+    if (document.visibilityState === 'visible' && this.isPlaying) {
       this.resumeIfSuspended();
+      this.requestWakeLock();
+    }
+  }
+
+  private async requestWakeLock() {
+    if ('wakeLock' in navigator && !this.wakeLock) {
+      try {
+        this.wakeLock = await (navigator as any).wakeLock.request('screen');
+        this.wakeLock.addEventListener('release', () => {
+          this.wakeLock = null;
+        });
+      } catch (err) {}
+    }
+  }
+
+  private releaseWakeLock() {
+    if (this.wakeLock) {
+      try {
+        this.wakeLock.release();
+        this.wakeLock = null;
+      } catch (err) {}
     }
   }
 
@@ -52,18 +75,17 @@ class AudioService {
     const AudioCtx = (window.AudioContext || (window as any).webkitAudioContext);
     this.ctx = new AudioCtx({ latencyHint: 'playback' });
 
-    // 1. SILENT BACKGROUND KICKER
+    // Handle OS-level audio interruptions (calls, backgrounding, lock screen)
+    this.ctx.onstatechange = () => {
+      if (this.isPlaying && this.ctx?.state === 'suspended') {
+        this.ctx.resume().catch(() => {});
+      }
+    };
+
+    // Silent background kicker element to maintain mobile audio session
     this.silentAudio = new Audio('data:audio/mpeg;base64,SUQzBAAAAAABEVRYWFhYAAAAEAAAAL3NpbGVudC1hdWRpby8v//uQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAcea406AAAAAD//7kAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAcea406AAAAAD//7kAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAcea406AAAAAD');
     this.silentAudio.loop = true;
-    this.silentAudio.volume = 0.01;
-
-    // 2. EXCLUSIVE MEDIASTREAM ROUTING (The "Static" Fix)
-    this.mediaStreamDestination = this.ctx.createMediaStreamDestination();
-    this.outputAudioElement = new Audio();
-    this.outputAudioElement.srcObject = this.mediaStreamDestination.stream;
-    this.outputAudioElement.setAttribute('playsinline', 'true');
-    this.outputAudioElement.style.display = 'none';
-    document.body.appendChild(this.outputAudioElement);
+    this.silentAudio.volume = 0.001;
 
     this.compressor = this.ctx.createDynamicsCompressor();
     this.compressor.threshold.setValueAtTime(-20, this.ctx.currentTime);
@@ -75,10 +97,9 @@ class AudioService {
     this.masterGain = this.ctx.createGain();
     this.masterGain.gain.value = 0.0001;
     
-    // Route: EVERYTHING -> MASTER -> COMPRESSOR -> MEDIASTREAM -> OUTPUT AUDIO TAG
-    // We explicitly do NOT connect to ctx.destination to avoid hardware clock conflicts on lock-screen
+    // Route clean single path to destination: master -> compressor -> ctx.destination
     this.masterGain.connect(this.compressor);
-    this.compressor.connect(this.mediaStreamDestination);
+    this.compressor.connect(this.ctx.destination);
     
     this.binauralGain = this.ctx.createGain();
     this.binauralGain.connect(this.masterGain);
@@ -89,7 +110,7 @@ class AudioService {
     this.noiseGain = this.ctx.createGain();
     this.noiseGain.connect(this.masterGain);
 
-    // Initial Persistent Oscillators (started once, never stopped)
+    // Initial Persistent Oscillators (started once, never stopped to prevent clock glitches)
     const merger = this.ctx.createChannelMerger(2);
     this.leftOsc = this.ctx.createOscillator();
     this.rightOsc = this.ctx.createOscillator();
@@ -98,8 +119,9 @@ class AudioService {
     this.leftOscGain.gain.value = 0;
     this.rightOscGain.gain.value = 0;
 
+    // Default to Delta frequency (2Hz difference: 200Hz left, 202Hz right)
     this.leftOsc.frequency.value = this.binauralBaseFreq;
-    this.rightOsc.frequency.value = this.binauralBaseFreq + 5;
+    this.rightOsc.frequency.value = this.binauralBaseFreq + 2;
 
     this.leftOsc.connect(this.leftOscGain).connect(merger, 0, 0);
     this.rightOsc.connect(this.rightOscGain).connect(merger, 0, 1);
@@ -115,7 +137,7 @@ class AudioService {
     if ('mediaSession' in navigator) {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: 'ZenBeats',
-        artist: 'Deep Theta Session',
+        artist: 'Deep Delta Meditation',
         artwork: [{ src: 'https://images.unsplash.com/photo-1552728089-57bdde30937c?w=512&h=512&fit=crop', sizes: '512x512', type: 'image/jpeg' }]
       });
       navigator.mediaSession.setActionHandler('play', () => this.resumeIfSuspended());
@@ -131,19 +153,22 @@ class AudioService {
     if (this.silentAudio?.paused) {
       this.silentAudio.play().catch(() => {});
     }
-    if (this.outputAudioElement?.paused) {
-      this.outputAudioElement.play().catch(() => {});
-    }
   }
 
   private ramp(param: AudioParam, value: number, immediate: boolean = false) {
     if (!this.ctx || !param || typeof param.setTargetAtTime !== 'function') return;
     const now = this.ctx.currentTime;
-    if (immediate) {
-      param.cancelScheduledValues(now);
-      param.setValueAtTime(value, now);
-    } else {
-      param.setTargetAtTime(value, now, this.TIME_CONSTANT);
+    try {
+      if (immediate) {
+        param.cancelScheduledValues(now);
+        param.setValueAtTime(value, now);
+      } else {
+        param.cancelScheduledValues(now);
+        param.setValueAtTime(param.value, now);
+        param.setTargetAtTime(value, now, this.TIME_CONSTANT);
+      }
+    } catch (e) {
+      try { param.value = value; } catch(err) {}
     }
   }
 
@@ -217,6 +242,8 @@ class AudioService {
   }
 
   stop() {
+    this.isPlaying = false;
+    this.releaseWakeLock();
     if (!this.ctx || !this.masterGain) return;
     const now = this.ctx.currentTime;
     this.masterGain.gain.setTargetAtTime(0.0001, now, 0.4);
@@ -228,7 +255,6 @@ class AudioService {
         try { this.colorNoiseNode.stop(); } catch(e) {}
         this.colorNoiseNode = null;
       }
-      if (this.outputAudioElement) this.outputAudioElement.pause();
       if (this.silentAudio) this.silentAudio.pause();
     }, 600);
     
@@ -241,8 +267,10 @@ class AudioService {
   }
 
   async start(natures: NatureSound[], noise: NoiseColor, freq: number, targetMasterVolume: number) {
+    this.isPlaying = true;
     await this.resumeIfSuspended();
     if (!this.ctx) this.init();
+    await this.requestWakeLock();
     
     // Gate oscillators open
     if (this.leftOscGain) this.ramp(this.leftOscGain.gain, 1.0);
@@ -252,23 +280,30 @@ class AudioService {
     this.updateNatures(natures);
     this.updateNoise(noise);
     
-    // FIXED: Passed masterGain.gain (AudioParam) instead of masterGain (GainNode)
     this.ramp(this.masterGain!.gain, targetMasterVolume, false);
     
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
   }
 
   private createNoiseBuffer(type: 'white' | 'pink' | 'brown' | 'green' = 'white') {
-    const duration = 15; 
-    const bufferSize = duration * this.ctx!.sampleRate;
-    const buffer = this.ctx!.createBuffer(1, bufferSize, this.ctx!.sampleRate);
-    const output = buffer.getChannelData(0);
+    if (!this.ctx) return null as any;
+    const duration = 16; 
+    const crossfadeDuration = 1.0; 
+    const sampleRate = this.ctx.sampleRate;
+    const loopSamples = Math.floor(duration * sampleRate);
+    const fadeSamples = Math.floor(crossfadeDuration * sampleRate);
+    const totalSamples = loopSamples + fadeSamples;
+
+    const raw = new Float32Array(totalSamples);
 
     if (type === 'white') {
-      for (let i = 0; i < bufferSize; i++) output[i] = Math.random() * 2 - 1;
+      for (let i = 0; i < totalSamples; i++) {
+        raw[i] = Math.random() * 2 - 1;
+      }
     } else if (type === 'pink') {
-      let b0=0, b1=0, b2=0, b3=0, b4=0, b5=0, b6=0;
-      for (let i = 0; i < bufferSize; i++) {
+      let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+      // Warm up filter to eliminate DC drift and initial transient pop
+      for (let i = 0; i < 44100; i++) {
         const white = Math.random() * 2 - 1;
         b0 = 0.99886 * b0 + white * 0.0555179;
         b1 = 0.99332 * b1 + white * 0.0750759;
@@ -276,23 +311,49 @@ class AudioService {
         b3 = 0.86650 * b3 + white * 0.3104856;
         b4 = 0.55000 * b4 + white * 0.5329522;
         b5 = -0.7616 * b5 - white * 0.0168980;
-        output[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.11;
+        b6 = white * 0.115926;
+      }
+      for (let i = 0; i < totalSamples; i++) {
+        const white = Math.random() * 2 - 1;
+        b0 = 0.99886 * b0 + white * 0.0555179;
+        b1 = 0.99332 * b1 + white * 0.0750759;
+        b2 = 0.96900 * b2 + white * 0.1538520;
+        b3 = 0.86650 * b3 + white * 0.3104856;
+        b4 = 0.55000 * b4 + white * 0.5329522;
+        b5 = -0.7616 * b5 - white * 0.0168980;
+        raw[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.11;
         b6 = white * 0.115926;
       }
     } else {
+      // Brown / ocean noise: Leaky integration with warm-up
       let lastOut = 0.0;
-      for (let i = 0; i < bufferSize; i++) {
+      for (let i = 0; i < 44100; i++) {
         const white = Math.random() * 2 - 1;
-        output[i] = (lastOut + (0.02 * white)) / 1.02;
-        lastOut = output[i];
-        output[i] *= 3.5;
+        lastOut = (lastOut + (0.02 * white)) / 1.02;
+      }
+      for (let i = 0; i < totalSamples; i++) {
+        const white = Math.random() * 2 - 1;
+        lastOut = (lastOut + (0.02 * white)) / 1.02;
+        raw[i] = lastOut * 3.5;
       }
     }
 
-    const fade = Math.floor(0.5 * this.ctx!.sampleRate);
-    for (let i = 0; i < fade; i++) {
-      const alpha = i / fade;
-      output[i] = output[i] * alpha + output[bufferSize - fade + i] * (1 - alpha);
+    // Allocate exact loop buffer
+    const buffer = this.ctx.createBuffer(1, loopSamples, sampleRate);
+    const output = buffer.getChannelData(0);
+
+    // Apply equal-power sine/cosine crossfade between head and tail
+    // This mathematically guarantees that output[0] matches the continuous continuation of output[loopSamples - 1]
+    const halfPi = Math.PI / 2;
+    for (let i = 0; i < loopSamples; i++) {
+      if (i < fadeSamples) {
+        const progress = i / fadeSamples;
+        const fadeIn = Math.sin(progress * halfPi);
+        const fadeOut = Math.cos(progress * halfPi);
+        output[i] = raw[i] * fadeIn + raw[loopSamples + i] * fadeOut;
+      } else {
+        output[i] = raw[i];
+      }
     }
     
     return buffer;
@@ -372,7 +433,12 @@ class AudioService {
     const scheduler = () => {
       if (!this.natureNodes.has(NatureSound.BIRDS) || !this.ctx) return;
       
-      const scheduleWindow = 5; 
+      // Prevent scheduling spike when resuming after backgrounding or sleep
+      if (nextBirdTime < this.ctx.currentTime) {
+        nextBirdTime = this.ctx.currentTime + 0.3;
+      }
+
+      const scheduleWindow = 4; 
       while (nextBirdTime < this.ctx.currentTime + scheduleWindow) {
         const startTime = nextBirdTime;
         const count = 2 + Math.floor(Math.random() * 3);
@@ -386,13 +452,21 @@ class AudioService {
           osc.frequency.setValueAtTime(freq, chirpStart);
           osc.frequency.exponentialRampToValueAtTime(freq + 1000, chirpStart + 0.12);
           
-          g.gain.setValueAtTime(0, chirpStart);
+          g.gain.setValueAtTime(0.0001, chirpStart);
           g.gain.linearRampToValueAtTime(0.03, chirpStart + 0.03);
-          g.gain.linearRampToValueAtTime(0, chirpStart + 0.4);
+          g.gain.linearRampToValueAtTime(0.0001, chirpStart + 0.4);
           
           osc.connect(g).connect(internalGain);
           osc.start(chirpStart);
           osc.stop(chirpStart + 0.5);
+
+          // Clean up nodes when finished to avoid accumulation over hours
+          osc.onended = () => {
+            try {
+              osc.disconnect();
+              g.disconnect();
+            } catch(e) {}
+          };
         }
         nextBirdTime += 6 + Math.random() * 8;
       }

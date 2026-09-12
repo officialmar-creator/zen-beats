@@ -19,11 +19,12 @@ If you have trouble using the Command Line (Git) because of Google Sign-in:
 ### 2. Hosting on Vercel (Free)
 1. Go to [Vercel.com](https://vercel.com).
 2. Connect your GitHub account.
-3. Import your `zen-beats` repository.
-4. **Important Settings:** Vercel will now automatically detect everything. 
+3. Import your repository (or create a new project with a unique name, e.g. `zenbeats-v2` or `zenbeats-delta`, to ensure a new dedicated URL without overwriting your existing deployment).
+4. **Project Settings:**
+   - Framework Preset: **Vite**
    - Build Command: `npm run build`
-   - Output Directory: `public` (Vercel default)
-5. Click **Deploy**. Send the link to your friends!
+   - Output Directory: `dist`
+5. Click **Deploy**. Vercel will assign a new, unique domain (e.g., `zenbeats-v2.vercel.app` plus a unique preview URL for every deployment).
 
 ---
 
