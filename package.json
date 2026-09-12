@@ -4,13 +4,9 @@
   "description": "Native iOS Binaural Beats App",
   "main": "index.js",
   "scripts": {
-    "start": "npm run build:dev && npx servor . index.html 8080 --reload",
-    "build:dev": "esbuild index.tsx --bundle --sourcemap --jsx=automatic --outfile=index.js --loader:.tsx=tsx --loader:.ts=ts --platform=browser --format=esm --define:process.env.NODE_ENV=\\\"development\\\"",
-    "build": "esbuild index.tsx --bundle --minify --sourcemap --jsx=automatic --outfile=public/index.js --loader:.tsx=tsx --loader:.ts=ts --platform=browser --format=esm --define:process.env.NODE_ENV=\\\"production\\\" && cp index.html public/index.html && cp manifest.json public/manifest.json",
-    "sync": "npm run build && npx cap sync ios",
-    "run:ios": "npm run sync && npx cap run ios",
-    "deploy": "npm run sync && npx cap open ios",
-    "pod:fix": "cd ios/App && rm -rf Pods Podfile.lock && pod repo remove master || true && pod repo add-cdn trunk https://cdn.cocoapods.org/ || true && export GIT_SSL_NO_VERIFY=true && pod install"
+    "dev": "vite --host 0.0.0.0 --port 3000",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 3000"
   },
   "dependencies": {
     "@capacitor/cli": "^6.0.0",
@@ -20,5 +16,11 @@
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "esbuild": "^0.24.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "vite": "^8.3.0"
   }
 }

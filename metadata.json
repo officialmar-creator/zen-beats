@@ -1,5 +1,8 @@
 {
   "name": "ZenBeats",
-  "description": "5Hz Theta Binaural Meditation",
-  "requestFramePermissions": []
+  "description": "Delta and Theta Binaural Beats Meditation with Nature Soundscapes",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
