@@ -7,6 +7,8 @@ import Visualizer from './components/Visualizer';
 
 const App: React.FC = () => {
   const [showInstallGuide, setShowInstallGuide] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [justCompleted, setJustCompleted] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(() => {
     const saved = localStorage.getItem('zenbeats-theme');
     return saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -54,7 +56,41 @@ const App: React.FC = () => {
     }
   }, [settings, state.isPlaying]);
 
+  // Handle wake from screen lock or background tab to synchronize time and session end
+  useEffect(() => {
+    const handleSyncOnWake = () => {
+      if (endTimeRef.current) {
+        const now = Date.now();
+        const remaining = Math.max(0, Math.floor((endTimeRef.current - now) / 1000));
+        if (remaining <= 0) {
+          audioService.playCompletionChime();
+          audioService.stop();
+          if (timerRef.current) {
+            clearInterval(timerRef.current);
+            timerRef.current = null;
+          }
+          endTimeRef.current = null;
+          setState(prev => ({ ...prev, isPlaying: false, timeLeft: settings.duration * 60 }));
+          setJustCompleted(true);
+        } else {
+          setState(prev => ({ ...prev, timeLeft: remaining }));
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleSyncOnWake);
+    window.addEventListener('pageshow', handleSyncOnWake);
+    window.addEventListener('focus', handleSyncOnWake);
+    return () => {
+      document.removeEventListener('visibilitychange', handleSyncOnWake);
+      window.removeEventListener('pageshow', handleSyncOnWake);
+      window.removeEventListener('focus', handleSyncOnWake);
+    };
+  }, [settings.duration]);
+
   const togglePlay = useCallback(async () => {
+    setJustCompleted(false);
+
     if (state.isPlaying) {
       audioService.stop();
       if (timerRef.current) {
@@ -87,13 +123,16 @@ const App: React.FC = () => {
         const remaining = Math.max(0, Math.floor((endTimeRef.current - now) / 1000));
         setState(prev => {
           if (remaining <= 0) {
+            // Play gentle finish chime and smoothly wrap up session
+            audioService.playCompletionChime();
             audioService.stop();
             if (timerRef.current) {
               clearInterval(timerRef.current);
               timerRef.current = null;
             }
             endTimeRef.current = null;
-            return { ...prev, isPlaying: false, timeLeft: 0 };
+            setJustCompleted(true);
+            return { ...prev, isPlaying: false, timeLeft: settings.duration * 60 };
           }
           return { ...prev, timeLeft: remaining };
         });
@@ -111,12 +150,16 @@ const App: React.FC = () => {
         });
       } catch (err) {}
     } else {
-      navigator.clipboard.writeText(window.location.href);
-      alert('Link copied!');
+      try {
+        await navigator.clipboard.writeText(window.location.href);
+        setCopiedLink(true);
+        setTimeout(() => setCopiedLink(false), 2500);
+      } catch (e) {}
     }
   };
 
   const updateSettings = (newSettings: Partial<AudioSettings>) => {
+    setJustCompleted(false);
     setSettings(prev => {
       const updated = { ...prev, ...newSettings };
       if (newSettings.duration !== undefined && !state.isPlaying) {
@@ -183,9 +226,15 @@ const App: React.FC = () => {
           Zen<span className="text-sky-600">Beats</span>
         </h1>
         
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 relative">
+          {copiedLink && (
+            <span className="absolute -left-20 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-[10px] font-bold px-2 py-1 rounded-md shadow-md">
+              Copied!
+            </span>
+          )}
           <button 
             onClick={handleShare}
+            title="Share ZenBeats"
             className="p-2 text-slate-500 dark:text-slate-400 hover:text-sky-600 active:scale-90 transition-all"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -213,6 +262,21 @@ const App: React.FC = () => {
       )}
 
       <main className="flex flex-col px-6 py-6 space-y-8 no-scrollbar overflow-y-auto">
+        {justCompleted && (
+          <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 rounded-2xl p-3.5 flex items-center justify-between gap-3 text-emerald-800 dark:text-emerald-300">
+            <div className="flex items-center gap-2.5">
+              <span className="text-lg">✨</span>
+              <p className="text-xs font-bold">Session Complete — Restored & Peaceful</p>
+            </div>
+            <button 
+              onClick={() => setJustCompleted(false)} 
+              className="text-emerald-600 dark:text-emerald-400 text-xs font-semibold hover:underline"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
         {/* Duration Section */}
         <section className="flex flex-col shrink-0">
           <div className="flex justify-between items-end mb-4">

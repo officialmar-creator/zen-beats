@@ -28,29 +28,37 @@ class AudioService {
   private colorNoiseNode: AudioBufferSourceNode | null = null;
   private colorNoiseGain: GainNode | null = null;
 
-  // Persistence elements
-  private silentAudio: HTMLAudioElement | null = null;
+  // Persistence and Background Audio elements
+  private bgAudio: HTMLAudioElement | null = null;
+  private streamDest: MediaStreamAudioDestinationNode | null = null;
+  private streamAudio: HTMLAudioElement | null = null;
   private wakeLock: any = null;
   private isPlaying = false;
+  private stopTimeout: any = null;
 
   private readonly TIME_CONSTANT = 0.15; // Natural smoothing constant
 
   constructor() {
     this.handleVisibility = this.handleVisibility.bind(this);
-    document.addEventListener('visibilitychange', this.handleVisibility);
-    window.addEventListener('pageshow', this.handleVisibility);
-    window.addEventListener('focus', this.handleVisibility);
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', this.handleVisibility);
+      window.addEventListener('pageshow', this.handleVisibility);
+      window.addEventListener('focus', this.handleVisibility);
+      window.addEventListener('online', this.handleVisibility);
+    }
   }
 
   private handleVisibility() {
-    if (document.visibilityState === 'visible' && this.isPlaying) {
+    if (this.isPlaying) {
       this.resumeIfSuspended();
-      this.requestWakeLock();
+      if (document.visibilityState === 'visible') {
+        this.requestWakeLock();
+      }
     }
   }
 
   private async requestWakeLock() {
-    if ('wakeLock' in navigator && !this.wakeLock) {
+    if (typeof navigator !== 'undefined' && 'wakeLock' in navigator && !this.wakeLock) {
       try {
         this.wakeLock = await (navigator as any).wakeLock.request('screen');
         this.wakeLock.addEventListener('release', () => {
@@ -70,22 +78,37 @@ class AudioService {
   }
 
   init() {
+    // If context is closed or crashed, reset it cleanly
+    if (this.ctx && this.ctx.state === 'closed') {
+      this.ctx = null;
+      this.leftOsc = null;
+      this.rightOsc = null;
+    }
+
     if (this.ctx) return;
     
     const AudioCtx = (window.AudioContext || (window as any).webkitAudioContext);
     this.ctx = new AudioCtx({ latencyHint: 'playback' });
 
-    // Handle OS-level audio interruptions (calls, backgrounding, lock screen)
+    // Handle OS-level audio interruptions (phone calls, backgrounding, lock screen)
     this.ctx.onstatechange = () => {
       if (this.isPlaying && this.ctx?.state === 'suspended') {
         this.ctx.resume().catch(() => {});
       }
     };
 
-    // Silent background kicker element to maintain mobile audio session
-    this.silentAudio = new Audio('data:audio/mpeg;base64,SUQzBAAAAAABEVRYWFhYAAAAEAAAAL3NpbGVudC1hdWRpby8v//uQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAcea406AAAAAD//7kAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAcea406AAAAAD//7kAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAcea406AAAAAD');
-    this.silentAudio.loop = true;
-    this.silentAudio.volume = 0.001;
+    // Continuous audio element anchor with actual PCM WAV to hold iOS/Android audio session alive
+    if (!this.bgAudio && typeof document !== 'undefined') {
+      this.bgAudio = document.createElement('audio');
+      this.bgAudio.src = '/keepalive.wav';
+      this.bgAudio.loop = true;
+      this.bgAudio.volume = 0.02; // Non-zero so mobile OS doesn't disregard as silent
+      this.bgAudio.setAttribute('playsinline', 'true');
+      this.bgAudio.setAttribute('webkit-playsinline', 'true');
+      this.bgAudio.setAttribute('preload', 'auto');
+      this.bgAudio.style.display = 'none';
+      document.body.appendChild(this.bgAudio);
+    }
 
     this.compressor = this.ctx.createDynamicsCompressor();
     this.compressor.threshold.setValueAtTime(-20, this.ctx.currentTime);
@@ -100,6 +123,22 @@ class AudioService {
     // Route clean single path to destination: master -> compressor -> ctx.destination
     this.masterGain.connect(this.compressor);
     this.compressor.connect(this.ctx.destination);
+
+    // Route audio to MediaStreamDestination if available for lock-screen hardware stream pipeline
+    try {
+      if (typeof this.ctx.createMediaStreamDestination === 'function' && !this.streamDest) {
+        this.streamDest = this.ctx.createMediaStreamDestination();
+        this.masterGain.connect(this.streamDest);
+        if (!this.streamAudio && typeof document !== 'undefined') {
+          this.streamAudio = document.createElement('audio');
+          this.streamAudio.setAttribute('playsinline', 'true');
+          this.streamAudio.setAttribute('webkit-playsinline', 'true');
+          this.streamAudio.style.display = 'none';
+          this.streamAudio.srcObject = this.streamDest.stream;
+          document.body.appendChild(this.streamAudio);
+        }
+      }
+    } catch (e) {}
     
     this.binauralGain = this.ctx.createGain();
     this.binauralGain.connect(this.masterGain);
@@ -110,7 +149,7 @@ class AudioService {
     this.noiseGain = this.ctx.createGain();
     this.noiseGain.connect(this.masterGain);
 
-    // Initial Persistent Oscillators (started once, never stopped to prevent clock glitches)
+    // Persistent Oscillators
     const merger = this.ctx.createChannelMerger(2);
     this.leftOsc = this.ctx.createOscillator();
     this.rightOsc = this.ctx.createOscillator();
@@ -127,31 +166,42 @@ class AudioService {
     this.rightOsc.connect(this.rightOscGain).connect(merger, 0, 1);
     merger.connect(this.binauralGain);
 
-    this.leftOsc.start();
-    this.rightOsc.start();
+    try {
+      this.leftOsc.start();
+      this.rightOsc.start();
+    } catch (e) {}
 
     this.setupMediaSession();
   }
 
   private setupMediaSession() {
-    if ('mediaSession' in navigator) {
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: 'ZenBeats',
-        artist: 'Deep Delta Meditation',
-        artwork: [{ src: 'https://images.unsplash.com/photo-1552728089-57bdde30937c?w=512&h=512&fit=crop', sizes: '512x512', type: 'image/jpeg' }]
+        artist: 'Deep Delta & Theta Meditation',
+        album: 'Binaural Brainwave Sanctuary',
+        artwork: [
+          { src: 'https://images.unsplash.com/photo-1552728089-57bdde30937c?w=512&h=512&fit=crop', sizes: '512x512', type: 'image/jpeg' }
+        ]
       });
       navigator.mediaSession.setActionHandler('play', () => this.resumeIfSuspended());
       navigator.mediaSession.setActionHandler('pause', () => this.stop());
+      navigator.mediaSession.setActionHandler('stop', () => this.stop());
     }
   }
 
   async resumeIfSuspended() {
-    if (!this.ctx) this.init();
-    if (this.ctx!.state === 'suspended') {
-      await this.ctx!.resume();
+    if (!this.ctx || this.ctx.state === 'closed') this.init();
+    if (this.ctx && this.ctx.state === 'suspended') {
+      try {
+        await this.ctx.resume();
+      } catch (err) {}
     }
-    if (this.silentAudio?.paused) {
-      this.silentAudio.play().catch(() => {});
+    if (this.bgAudio && this.bgAudio.paused && this.isPlaying) {
+      this.bgAudio.play().catch(() => {});
+    }
+    if (this.streamAudio && this.streamAudio.paused && this.isPlaying) {
+      this.streamAudio.play().catch(() => {});
     }
   }
 
@@ -159,12 +209,12 @@ class AudioService {
     if (!this.ctx || !param || typeof param.setTargetAtTime !== 'function') return;
     const now = this.ctx.currentTime;
     try {
+      param.cancelScheduledValues(now);
       if (immediate) {
-        param.cancelScheduledValues(now);
         param.setValueAtTime(value, now);
       } else {
-        param.cancelScheduledValues(now);
-        param.setValueAtTime(param.value, now);
+        const currVal = typeof param.value === 'number' && !isNaN(param.value) ? param.value : value;
+        param.setValueAtTime(currVal, now);
         param.setTargetAtTime(value, now, this.TIME_CONSTANT);
       }
     } catch (e) {
@@ -190,7 +240,11 @@ class AudioService {
 
   updateFrequency(freq: number) {
     if (this.rightOsc && this.ctx) {
-      this.rightOsc.frequency.setTargetAtTime(this.binauralBaseFreq + freq, this.ctx.currentTime, 0.3);
+      try {
+        this.rightOsc.frequency.setTargetAtTime(this.binauralBaseFreq + freq, this.ctx.currentTime, 0.3);
+      } catch (e) {
+        this.rightOsc.frequency.value = this.binauralBaseFreq + freq;
+      }
     }
   }
 
@@ -208,7 +262,7 @@ class AudioService {
     if (!this.ctx) return;
     const now = this.ctx.currentTime;
     if (node.internalGain) {
-      node.internalGain.gain.setTargetAtTime(0, now, 0.1);
+      try { node.internalGain.gain.setTargetAtTime(0, now, 0.1); } catch (e) {}
     }
     if (node.lookaheadTimer) window.clearInterval(node.lookaheadTimer);
     
@@ -217,7 +271,7 @@ class AudioService {
       try { node.lfo?.stop(); } catch(e) {}
       try { node.breezeSource?.stop(); } catch(e) {}
       this.natureNodes.delete(type);
-    }, 500);
+    }, 300);
   }
 
   updateNoise(color: NoiseColor) {
@@ -226,7 +280,7 @@ class AudioService {
     if (this.colorNoiseGain) {
       this.ramp(this.colorNoiseGain.gain, 0);
       const oldNode = this.colorNoiseNode;
-      setTimeout(() => { try { oldNode?.stop(); } catch(e) {} }, 500);
+      setTimeout(() => { try { oldNode?.stop(); } catch(e) {} }, 300);
     }
 
     if (color !== NoiseColor.NONE) {
@@ -241,48 +295,137 @@ class AudioService {
     }
   }
 
+  // Plays a resonant Tibetan singing bowl completion chime when session timer finishes
+  playCompletionChime() {
+    if (!this.ctx) this.init();
+    if (!this.ctx) return;
+
+    try {
+      if (this.ctx.state === 'suspended') {
+        this.ctx.resume().catch(() => {});
+      }
+
+      const now = this.ctx.currentTime;
+      const chimeGain = this.ctx.createGain();
+      chimeGain.gain.setValueAtTime(0.0001, now);
+      chimeGain.gain.linearRampToValueAtTime(0.35, now + 0.05);
+      chimeGain.gain.exponentialRampToValueAtTime(0.0001, now + 4.5);
+      chimeGain.connect(this.ctx.destination);
+
+      // Solfeggio 528Hz healing fundamental + harmonics
+      const frequencies = [264, 528, 1056, 1584];
+      const gains = [0.2, 0.4, 0.25, 0.1];
+
+      frequencies.forEach((freq, idx) => {
+        const osc = this.ctx!.createOscillator();
+        const oscGain = this.ctx!.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, now);
+
+        oscGain.gain.setValueAtTime(gains[idx], now);
+        oscGain.gain.exponentialRampToValueAtTime(0.0001, now + (3.5 + idx * 0.3));
+
+        osc.connect(oscGain).connect(chimeGain);
+        osc.start(now);
+        osc.stop(now + 4.5);
+
+        osc.onended = () => {
+          try {
+            osc.disconnect();
+            oscGain.disconnect();
+          } catch(e) {}
+        };
+      });
+
+      setTimeout(() => {
+        try { chimeGain.disconnect(); } catch (e) {}
+      }, 5000);
+    } catch (err) {
+      console.warn('Chime playback error:', err);
+    }
+  }
+
   stop() {
     this.isPlaying = false;
     this.releaseWakeLock();
+    
+    // Clear any previous stop timeout
+    if (this.stopTimeout) {
+      clearTimeout(this.stopTimeout);
+      this.stopTimeout = null;
+    }
+
+    if (this.bgAudio) {
+      try { this.bgAudio.pause(); } catch(e) {}
+    }
+    if (this.streamAudio) {
+      try { this.streamAudio.pause(); } catch(e) {}
+    }
+
     if (!this.ctx || !this.masterGain) return;
     const now = this.ctx.currentTime;
-    this.masterGain.gain.setTargetAtTime(0.0001, now, 0.4);
+    try {
+      this.masterGain.gain.setTargetAtTime(0.0001, now, 0.3);
+    } catch (e) {}
     
-    setTimeout(() => {
+    this.stopTimeout = setTimeout(() => {
+      // Guard against race condition: don't mute if user restarted
+      if (this.isPlaying) return;
       this.mutePermanentOscillators();
       this.natureNodes.forEach((node, type) => this.fadeOutNatureNode(node, type));
       if (this.colorNoiseNode) {
         try { this.colorNoiseNode.stop(); } catch(e) {}
         this.colorNoiseNode = null;
       }
-      if (this.silentAudio) this.silentAudio.pause();
-    }, 600);
+    }, 500);
     
-    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = 'paused';
+    }
   }
 
   private mutePermanentOscillators() {
-    if (this.leftOscGain) this.ramp(this.leftOscGain.gain, 0);
-    if (this.rightOscGain) this.ramp(this.rightOscGain.gain, 0);
+    if (this.leftOscGain) this.ramp(this.leftOscGain.gain, 0, true);
+    if (this.rightOscGain) this.ramp(this.rightOscGain.gain, 0, true);
   }
 
   async start(natures: NatureSound[], noise: NoiseColor, freq: number, targetMasterVolume: number) {
     this.isPlaying = true;
+
+    // Immediately cancel any pending stop timeout
+    if (this.stopTimeout) {
+      clearTimeout(this.stopTimeout);
+      this.stopTimeout = null;
+    }
+
     await this.resumeIfSuspended();
-    if (!this.ctx) this.init();
+    if (!this.ctx || this.ctx.state === 'closed') this.init();
     await this.requestWakeLock();
+
+    // Start background lock-screen audio anchor
+    if (this.bgAudio) {
+      this.bgAudio.currentTime = 0;
+      this.bgAudio.play().catch(() => {});
+    }
+    if (this.streamAudio) {
+      this.streamAudio.play().catch(() => {});
+    }
     
     // Gate oscillators open
-    if (this.leftOscGain) this.ramp(this.leftOscGain.gain, 1.0);
-    if (this.rightOscGain) this.ramp(this.rightOscGain.gain, 1.0);
+    if (this.leftOscGain) this.ramp(this.leftOscGain.gain, 1.0, true);
+    if (this.rightOscGain) this.ramp(this.rightOscGain.gain, 1.0, true);
     
     this.updateFrequency(freq);
     this.updateNatures(natures);
     this.updateNoise(noise);
     
-    this.ramp(this.masterGain!.gain, targetMasterVolume, false);
+    if (this.masterGain) {
+      this.ramp(this.masterGain.gain, targetMasterVolume, false);
+    }
     
-    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = 'playing';
+    }
   }
 
   private createNoiseBuffer(type: 'white' | 'pink' | 'brown' | 'green' = 'white') {
@@ -302,7 +445,6 @@ class AudioService {
       }
     } else if (type === 'pink') {
       let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
-      // Warm up filter to eliminate DC drift and initial transient pop
       for (let i = 0; i < 44100; i++) {
         const white = Math.random() * 2 - 1;
         b0 = 0.99886 * b0 + white * 0.0555179;
@@ -325,7 +467,6 @@ class AudioService {
         b6 = white * 0.115926;
       }
     } else {
-      // Brown / ocean noise: Leaky integration with warm-up
       let lastOut = 0.0;
       for (let i = 0; i < 44100; i++) {
         const white = Math.random() * 2 - 1;
@@ -338,12 +479,9 @@ class AudioService {
       }
     }
 
-    // Allocate exact loop buffer
     const buffer = this.ctx.createBuffer(1, loopSamples, sampleRate);
     const output = buffer.getChannelData(0);
 
-    // Apply equal-power sine/cosine crossfade between head and tail
-    // This mathematically guarantees that output[0] matches the continuous continuation of output[loopSamples - 1]
     const halfPi = Math.PI / 2;
     for (let i = 0; i < loopSamples; i++) {
       if (i < fadeSamples) {
@@ -440,7 +578,7 @@ class AudioService {
 
       const scheduleWindow = 4; 
       while (nextBirdTime < this.ctx.currentTime + scheduleWindow) {
-        const startTime = nextBirdTime;
+        const startTime = Math.max(nextBirdTime, this.ctx.currentTime + 0.05);
         const count = 2 + Math.floor(Math.random() * 3);
         
         for (let i = 0; i < count; i++) {
@@ -460,7 +598,6 @@ class AudioService {
           osc.start(chirpStart);
           osc.stop(chirpStart + 0.5);
 
-          // Clean up nodes when finished to avoid accumulation over hours
           osc.onended = () => {
             try {
               osc.disconnect();
